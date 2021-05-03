@@ -44,11 +44,7 @@ ssize_t gpu_clock_show(struct kobject *kobj,
 
 	gpu_freq = mt_gpufreq_get_cur_volt() ? mt_gpufreq_get_cur_freq() : 0;
 
-<<<<<<< HEAD
 	return scnprintf(buf, PAGE_SIZE, "%u\n", gpu_freq / 1000);
-=======
-	return scnprintf(buf, PAGE_SIZE, "%u\n", gpu_freq);
->>>>>>> 8e9e66a68a96... drivers: mediatek/gpu: Add ged ski
 }
 
 static KOBJ_ATTR_RO(gpu_clock);
@@ -71,11 +67,7 @@ ssize_t gpu_freq_table_show(struct kobject *kobj,
 
 	for (idx = max_opp_idx; count < table_num; count++) {
 		length = scnprintf(temp + pos, 1024 - pos,
-<<<<<<< HEAD
 				"%u ", power_table[idx + count].gpufreq_khz / 1000);
-=======
-				"%u ", power_table[idx + count].gpufreq_khz);
->>>>>>> 8e9e66a68a96... drivers: mediatek/gpu: Add ged ski
 		pos += length;
 	}
 
@@ -103,11 +95,7 @@ static ssize_t gpu_max_clock_show(struct kobject *kobj,
 	max_clock = (max_clock_custom < max_clock) ?
 			max_clock_custom : max_clock;
 
-<<<<<<< HEAD
 	return scnprintf(buf, PAGE_SIZE, "%u\n", max_clock / 1000);
-=======
-	return scnprintf(buf, PAGE_SIZE, "%u\n", max_clock);
->>>>>>> 8e9e66a68a96... drivers: mediatek/gpu: Add ged ski
 }
 
 static ssize_t gpu_max_clock_store(struct kobject *kobj,
@@ -161,11 +149,7 @@ ssize_t gpu_min_clock_show(struct kobject *kobj,
 	min_clock = (min_clock_custom > min_clock) ?
 			min_clock_custom : min_clock;
 
-<<<<<<< HEAD
 	return scnprintf(buf, PAGE_SIZE, "%lu\n", min_clock / 1000);
-=======
-	return scnprintf(buf, PAGE_SIZE, "%lu\n", min_clock);
->>>>>>> 8e9e66a68a96... drivers: mediatek/gpu: Add ged ski
 }
 
 static ssize_t gpu_min_clock_store(struct kobject *kobj,
