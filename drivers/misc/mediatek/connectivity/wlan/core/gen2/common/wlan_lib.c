@@ -4386,8 +4386,13 @@ wlanSetPreferBandByNetwork(IN P_ADAPTER_T prAdapter, IN ENUM_BAND_T eBand, IN EN
 {
 	ASSERT(prAdapter);
 	ASSERT(eBand <= BAND_NUM);
-	ASSERT(eNetTypeIndex <= NETWORK_TYPE_INDEX_NUM);
 
+	if (eNetTypeIndex >= NETWORK_TYPE_INDEX_NUM ||
+		eNetTypeIndex < NETWORK_TYPE_AIS_INDEX) {
+		DBGLOG(SCN, WARN, "wlanSetPreferBandByNetwork, Idx=%d\n",
+			eNetTypeIndex);
+		return;
+	}
 	/* 1. set prefer band according to network type */
 	prAdapter->aePreferBand[eNetTypeIndex] = eBand;
 
@@ -5798,6 +5803,7 @@ UINT_32 wlanDecimalStr2Hexadecimals(PUINT_8 pucDecimalStr, PUINT_16 pu2Out)
 	while (*pucDecimalStr == '0')
 		pucDecimalStr++;
 	kalStrnCpy(aucDecimalStr, pucDecimalStr, sizeof(aucDecimalStr) - 1);
+	aucDecimalStr[31] = 0;
 	pucDecimalPart = strchr(aucDecimalStr, '.');
 	if (!pucDecimalPart) {
 		DBGLOG(INIT, INFO, "No decimal part, ori str %s\n", pucDecimalStr);

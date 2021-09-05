@@ -463,6 +463,10 @@ u_int8_t kalP2PGetCcmpCipher(IN struct GLUE_INFO *prGlueInfo,
 	ASSERT(prGlueInfo);
 	ASSERT(prGlueInfo->prP2PInfo[ucRoleIdx]);
 
+	DBGLOG(P2P, TRACE,
+		"P2P get ccmp cipher: %d\n",
+		prGlueInfo->prP2PInfo[ucRoleIdx]->u4CipherPairwise);
+
 	if (prGlueInfo->prP2PInfo[ucRoleIdx]->u4CipherPairwise
 		== IW_AUTH_CIPHER_CCMP)
 		return TRUE;
@@ -1485,6 +1489,8 @@ kalP2PGCIndicateConnectionStatus(IN struct GLUE_INFO *prGlueInfo,
 		/* FIXME: This exception occurs at wlanRemove. */
 		if ((prGlueP2pInfo == NULL) ||
 		    (prGlueP2pInfo->aprRoleHandler == NULL) ||
+		    (prGlueP2pInfo->aprRoleHandler->reg_state !=
+				NETREG_REGISTERED) ||
 		    (prAdapter->rP2PNetRegState !=
 				ENUM_NET_REG_STATE_REGISTERED) ||
 		    ((prGlueInfo->ulFlag & GLUE_FLAG_HALT) == 1)) {

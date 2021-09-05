@@ -669,6 +669,10 @@ uint32_t assocSendReAssocReqFrame(IN struct ADAPTER *prAdapter,
 					       &u2PayloadLen);
 
 	/* 4 <3> Update information of MSDU_INFO_T */
+	nicTxSetPktLifeTime(prMsduInfo, 100);
+	nicTxSetPktRetryLimit(prMsduInfo, TX_DESC_TX_COUNT_NO_LIMIT);
+	nicTxSetForceRts(prMsduInfo, TRUE);
+
 	TX_SET_MMPDU(prAdapter,
 		     prMsduInfo,
 		     prStaRec->ucBssIndex,
@@ -1266,6 +1270,10 @@ uint32_t assocSendDisAssocFrame(IN struct ADAPTER *prAdapter,
 	u2PayloadLen = REASON_CODE_FIELD_LEN;
 
 	/* 4 <3> Update information of MSDU_INFO_T */
+	nicTxSetPktLifeTime(prMsduInfo, 100);
+	nicTxSetPktRetryLimit(prMsduInfo, TX_DESC_TX_COUNT_NO_LIMIT);
+	nicTxSetForceRts(prMsduInfo, TRUE);
+
 	TX_SET_MMPDU(prAdapter,
 		     prMsduInfo,
 		     prStaRec->ucBssIndex,
@@ -1378,8 +1386,8 @@ uint32_t assocProcessRxAssocReqFrame(IN struct ADAPTER *prAdapter,
 	struct BSS_INFO *prBssInfo;
 	struct IE_SSID *prIeSsid = (struct IE_SSID *)NULL;
 	struct RSN_INFO_ELEM *prIeRsn = (struct RSN_INFO_ELEM *)NULL;
-	struct IE_SUPPORTED_RATE *prIeSupportedRate =
-	    (struct IE_SUPPORTED_RATE *)NULL;
+	struct IE_SUPPORTED_RATE_IOT *prIeSupportedRate =
+	    (struct IE_SUPPORTED_RATE_IOT *)NULL;
 	struct IE_EXT_SUPPORTED_RATE *prIeExtSupportedRate =
 	    (struct IE_EXT_SUPPORTED_RATE *)NULL;
 	struct WIFI_VAR *prWifiVar = NULL;
@@ -1494,7 +1502,7 @@ uint32_t assocProcessRxAssocReqFrame(IN struct ADAPTER *prAdapter,
 		case ELEM_ID_SUP_RATES:
 			if ((!prIeSupportedRate)
 			    && (IE_LEN(pucIE) <= RATE_NUM_SW))
-				prIeSupportedRate = SUP_RATES_IE(pucIE);
+				prIeSupportedRate = SUP_RATES_IOT_IE(pucIE);
 
 			break;
 
@@ -1961,6 +1969,10 @@ uint32_t assocSendReAssocRespFrame(IN struct ADAPTER *prAdapter,
 			&u2PayloadLen);
 
 	/* 4 <3> Update information of MSDU_INFO_T */
+	nicTxSetPktLifeTime(prMsduInfo, 100);
+	nicTxSetPktRetryLimit(prMsduInfo, TX_DESC_TX_COUNT_NO_LIMIT);
+	nicTxSetForceRts(prMsduInfo, TRUE);
+
 	TX_SET_MMPDU(prAdapter,
 		     prMsduInfo,
 		     prStaRec->ucBssIndex,
@@ -1985,6 +1997,13 @@ uint32_t assocSendReAssocRespFrame(IN struct ADAPTER *prAdapter,
 			txAssocRespIETable[i].pfnAppendIE(prAdapter,
 							  prMsduInfo);
 
+	}
+
+	DBGLOG(AAA, TRACE, "Dump assoc response frame\n");
+
+	if (aucDebugModule[DBG_P2P_IDX] & DBG_CLASS_TRACE) {
+		dumpMemory8((uint8_t *) prMsduInfo->prPacket,
+			(uint32_t) prMsduInfo->u2FrameLength);
 	}
 
 #if CFG_SUPPORT_WFD

@@ -3878,26 +3878,17 @@ WLAN_STATUS nicRxProcessActionFrame(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSw
 
 	case CATEGORY_PUBLIC_ACTION:
 	{
-		UINT_8 ucProcessed = 0;
 
-		if (IS_BMCAST_MAC_ADDR(prActFrame->aucDestAddr) ||
-		    EQUAL_MAC_ADDR(prActFrame->aucDestAddr, prAdapter->rWifiVar.aucMacAddress)) {
-			aisFuncValidateRxActionFrame(prAdapter, prSwRfb);
-			ucProcessed = 1;
-		}
+		aisFuncValidateRxActionFrame(prAdapter, prSwRfb);
 #if CFG_ENABLE_WIFI_DIRECT
-		if (prAdapter->fgIsP2PRegistered &&
-		    (IS_BMCAST_MAC_ADDR(prActFrame->aucDestAddr) ||
-		     EQUAL_MAC_ADDR(prActFrame->aucDestAddr, prAdapter->rWifiVar.aucDeviceAddress))) {
+		if (prAdapter->fgIsP2PRegistered) {
 			rlmProcessPublicAction(prAdapter, prSwRfb);
 
 			p2pFuncValidateRxActionFrame(prAdapter, prSwRfb);
-			ucProcessed |= 2;
 		}
 #endif
-		if (!ucProcessed)
-			DBGLOG(RX, WARN, "Not processed public action frame, DA:%pM, Our: %pM\n",
-			       prActFrame->aucDestAddr, prAdapter->rWifiVar.aucMacAddress);
+		DBGLOG(RX, INFO, "Processed public action frame, DA:%pM, Our: %pM\n",
+			prActFrame->aucDestAddr, prAdapter->rWifiVar.aucMacAddress);
 		break;
 	}
 	case CATEGORY_HT_ACTION:

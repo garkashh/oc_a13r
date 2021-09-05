@@ -321,7 +321,7 @@ struct iw_p2p_version {
 extern struct ieee80211_supported_band mtk_band_2ghz;
 extern struct ieee80211_supported_band mtk_band_5ghz;
 
-extern const uint32_t mtk_cipher_suites[6];
+extern const uint32_t mtk_cipher_suites[8];
 
 
 /******************************************************************************
@@ -605,6 +605,9 @@ int mtk_p2p_cfg80211_testmode_hotspot_block_list_cmd(IN struct wiphy *wiphy,
 int mtk_p2p_cfg80211_testmode_hotspot_config_cmd(IN struct wiphy *wiphy,
 		IN void *data,
 		IN int len);
+
+int mtk_p2p_cfg80211_testmode_update_sta_pmkid_cmd(IN struct wiphy *wiphy,
+		IN struct net_device *nDev, IN void *data, IN int len);
 
 #else
 /* IGNORE KERNEL DEPENCY ERRORS*/

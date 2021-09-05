@@ -126,6 +126,7 @@
 #define RSN_AKM_SUITE_8021X_SUITE_B_192 0x0CAC0F00
 #define RSN_AKM_SUITE_OWE               0x12AC0F00
 #endif
+#define RSN_AKM_SUITE_DPP               0x029A6F50
 
 #define WPA_AKM_SUITE_NONE              0x00F25000
 #define WPA_AKM_SUITE_802_1X            0x01F25000
@@ -136,6 +137,9 @@
  * so we define here temporary
  */
 #define WLAN_AKM_SUITE_OSEN             0x506f9a01
+#define WLAN_AKM_SUITE_DPP              0x506F9A02
+
+
 #define WLAN_CIPHER_SUITE_NO_GROUP_ADDR 0x000fac07
 
 /* The RSN IE len for associate request */

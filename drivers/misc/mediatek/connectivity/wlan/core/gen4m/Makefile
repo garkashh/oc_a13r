@@ -8,11 +8,16 @@ ifeq ($(os),)
 os=linux
 endif
 
+ifeq ($(CONFIG_ARCH_MTK_PROJECT), "biloba")
+$(warning liuqi WIFI SAR C3J1)
+ccflags-y += -DTARGET_PRODUCT_BILOBA
+endif
+
+
 ccflags-y += -Wno-unused-value
 ccflags-y += -Wno-unused-result
 ccflags-y += -Wno-format
 ccflags-y += -Wno-parentheses
-ccflags-y += -Wno-error
 
 ifeq ($(os), none)
 ccflags-y += -I/usr/include/
@@ -36,6 +41,8 @@ ifeq ($(KBUILD_MODPOST_FAIL_ON_WARNINGS),)
     KBUILD_MODPOST_FAIL_ON_WARNINGS=y
 endif
 
+DRIVER_BUILD_DATE=20210810000000
+ccflags-y += -DDRIVER_BUILD_DATE='"$(DRIVER_BUILD_DATE)"'
 # ---------------------------------------------------
 # Compile Options
 # ---------------------------------------------------
@@ -50,6 +57,7 @@ endif
 
 $(info $$MTK_PLATFORM is [${MTK_PLATFORM}])
 $(info $$WLAN_CHIP_ID is [${WLAN_CHIP_ID}])
+$(info $$MTK_COMBO_CHIP is [${MTK_COMBO_CHIP}])
 
 ifneq ($(CONFIG_MTK_EMI),)
 ccflags-y += -DCONFIG_MTK_EMI=1
@@ -68,6 +76,7 @@ ccflags-y += -DWLAN_INCLUDE_PROC
 ccflags-y += -DCFG_SUPPORT_AGPS_ASSIST=0
 ccflags-y += -DCFG_SUPPORT_TSF_USING_BOOTTIME=1
 ccflags-y += -DARP_MONITER_ENABLE=1
+ccflags-y += -Werror
 #ccflags-y:=$(filter-out -U$(WLAN_CHIP_ID),$(ccflags-y))
 #ccflags-y += -DLINUX -D$(WLAN_CHIP_ID)
 #workaround: also needed for none LINUX system
@@ -105,6 +114,7 @@ ccflags-y += -DMT7915
 CONFIG_MTK_WIFI_CONNAC2X=y
 CONFIG_MTK_WIFI_11AX_SUPPORT=y
 CONFIG_MTK_WIFI_TWT_SUPPORT=y
+CONFIG_MTK_WIFI_TWT_SMART_STA=n
 CONFIG_NUM_OF_WFDMA_RX_RING=5
 CONFIG_NUM_OF_WFDMA_TX_RING=1
 endif
@@ -115,17 +125,14 @@ ccflags-y += -DSOC3_0
 CONFIG_MTK_WIFI_CONNAC2X=y
 CONFIG_MTK_WIFI_11AX_SUPPORT=y
 CONFIG_MTK_WIFI_TWT_SUPPORT=y
+CONFIG_MTK_WIFI_TWT_SMART_STA=n
 CONFIG_NUM_OF_WFDMA_RX_RING=3
 CONFIG_NUM_OF_WFDMA_TX_RING=0
 CONFIG_MTK_WIFI_CONNINFRA_SUPPORT=y
 CONFIG_MTK_WIFI_CONNAC2X_2x2=y
-CFG_WIFI_WORKAROUND_HWITS00012836_WTBL_SEARCH_FAIL=1
-CFG_WIFI_WORKAROUND_HWITS00010371_PMF_CIPHER_MISMATCH=1
 ccflags-y += -DCFG_POWER_ON_DOWNLOAD_EMI_ROM_PATCH=1
 ccflags-y += -DCFG_DOWNLOAD_DYN_MEMORY_MAP=1
 ccflags-y += -DCFG_ROM_PATCH_NO_SEM_CTRL=1
-ccflags-y += -DCFG_WIFI_WORKAROUND_HWITS00012836_WTBL_SEARCH_FAIL=1
-ccflags-y += -DCFG_WIFI_WORKAROUND_HWITS00010371_PMF_CIPHER_MISMATCH=1
 ccflags-y += -DCFG_ANDORID_CONNINFRA_SUPPORT=1
 else
 ccflags-y += -DCFG_ANDORID_CONNINFRA_SUPPORT=0
@@ -137,6 +144,7 @@ ccflags-y += -DMT7961
 CONFIG_MTK_WIFI_CONNAC2X=y
 CONFIG_MTK_WIFI_11AX_SUPPORT=y
 CONFIG_MTK_WIFI_TWT_SUPPORT=y
+CONFIG_MTK_WIFI_TWT_SMART_STA=n
 CONFIG_NUM_OF_WFDMA_RX_RING=5
 CONFIG_NUM_OF_WFDMA_TX_RING=1
 endif
@@ -167,8 +175,14 @@ endif
 
 ifeq ($(CONFIG_MTK_WIFI_TWT_SUPPORT), y)
     ccflags-y += -DCFG_SUPPORT_TWT=1
+    ifeq ($(CONFIG_MTK_WIFI_TWT_SMART_STA), y)
+        ccflags-y += -DCFG_TWT_SMART_STA=1
+    else
+        ccflags-y += -DCFG_TWT_SMART_STA=0
+    endif
 else
     ccflags-y += -DCFG_SUPPORT_TWT=0
+    ccflags-y += -DCFG_TWT_SMART_STA=0
 endif
 
 ifneq ($(CONFIG_NUM_OF_WFDMA_TX_RING),)
@@ -277,7 +291,11 @@ else
 endif
 
 # Disable ASSERT() for user load, enable for others
-ccflags-y += -DBUILD_QA_DBG=0
+ifneq ($(TARGET_BUILD_VARIANT),user)
+    ccflags-y += -DBUILD_QA_DBG=1
+else
+    ccflags-y += -DBUILD_QA_DBG=0
+endif
 
 ifeq ($(CONFIG_MTK_COMBO_WIFI),y)
     ccflags-y += -DCFG_WPS_DISCONNECT=1

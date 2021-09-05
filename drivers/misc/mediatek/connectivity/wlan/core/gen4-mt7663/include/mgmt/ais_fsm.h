@@ -318,7 +318,11 @@ struct MSG_AIS_BSS_TRANSITION_T {
 
 #if CFG_DISCONN_DEBUG_FEATURE
 struct AIS_DISCONN_INFO_T {
+#if KERNEL_VERSION(5, 0, 0) <= LINUX_VERSION_CODE
+	struct timespec64 tv;
+#else
 	struct timeval tv;
+#endif
 	uint8_t ucTrigger;
 	uint8_t ucDisConnReason;
 	uint8_t ucBcnTimeoutReason;

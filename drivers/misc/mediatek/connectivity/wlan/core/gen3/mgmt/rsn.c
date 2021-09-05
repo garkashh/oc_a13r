@@ -1242,7 +1242,7 @@ VOID rsnGenerateWPAIE(IN P_ADAPTER_T prAdapter, IN P_MSDU_INFO_T prMsduInfo)
 			WLAN_SET_FIELD_32(&WPA_IE(pucBuffer)->u4GroupKeyCipherSuite,
 					  prAdapter->prAisBssInfo->u4RsnSelectedGroupCipher);
 
-		cp = pucBuffer + OFFSET_OF(RSN_INFO_ELEM_T, aucPairwiseKeyCipherSuite1[0]);
+		cp = pucBuffer + OFFSET_OF(WPA_INFO_ELEM_T, aucPairwiseKeyCipherSuite1[0]);
 
 		WLAN_SET_FIELD_16(&WPA_IE(pucBuffer)->u2PairwiseKeyCipherSuiteCount, 1);
 #if CFG_ENABLE_WIFI_DIRECT

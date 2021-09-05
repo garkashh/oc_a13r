@@ -613,6 +613,11 @@ int mtk_cfg_sched_scan_stop(IN struct wiphy *wiphy,
 			    IN struct net_device *ndev);
 #endif /* CFG_SUPPORT_SCHED_SCAN */
 
+#if CFG_SUPPORT_CFG80211_AUTH
+int mtk_cfg_auth(struct wiphy *wiphy, struct net_device *ndev,
+		    struct cfg80211_auth_request *req);
+#endif
+
 int mtk_cfg_connect(struct wiphy *wiphy,
 		    struct net_device *ndev,
 		    struct cfg80211_connect_params *sme);

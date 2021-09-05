@@ -137,16 +137,48 @@ void saaSendAuthAssoc(IN struct ADAPTER *prAdapter,
 
 	uint32_t rStatus = WLAN_STATUS_FAILURE;
 	struct CONNECTION_SETTINGS *prConnSettings = NULL;
+	struct P2P_CONNECTION_SETTINGS *prP2pConnSettings = NULL;
 	/* default for OPEN */
 	uint16_t u2AuthTransSN = AUTH_TRANSACTION_SEQ_1;
 	struct BSS_DESC *prBssDesc = NULL;
 	struct AIS_SPECIFIC_BSS_INFO *prAisSpecBssInfo = NULL;
 	struct PARAM_SSID rSsid;
+	uint8_t ucBssIndex = 0;
+	uint8_t fgIsSendAssoc;
+	uint8_t fgIsP2pConn;
+	u_int8_t ucChannelNum;
+	struct BSS_INFO *prBssInfo;
 
 	ASSERT(prAdapter);
 	ASSERT(prStaRec);
 
-	prConnSettings = &(prAdapter->rWifiVar.rConnSettings);
+	ucBssIndex = prStaRec->ucBssIndex;
+
+	kalMemZero(&rSsid,
+		sizeof(struct PARAM_SSID));
+
+	if (IS_STA_IN_P2P(prStaRec)) {
+		prBssInfo = GET_BSS_INFO_BY_INDEX(prAdapter, ucBssIndex);
+		prP2pConnSettings = prAdapter->rWifiVar.
+				prP2PConnSettings[prBssInfo->u4PrivateData];
+		fgIsSendAssoc = prP2pConnSettings->fgIsSendAssoc;
+		fgIsP2pConn = TRUE;
+		ucChannelNum = 0;
+		COPY_SSID(rSsid.aucSsid,
+					rSsid.u4SsidLen,
+					prP2pConnSettings->aucSSID,
+					prP2pConnSettings->ucSSIDLen);
+	} else {
+		prConnSettings = &(prAdapter->rWifiVar.rConnSettings);
+		fgIsSendAssoc = prConnSettings->fgIsSendAssoc;
+		fgIsP2pConn = FALSE;
+		ucChannelNum = prConnSettings->ucChannelNum;
+		COPY_SSID(rSsid.aucSsid,
+					rSsid.u4SsidLen,
+					prConnSettings->aucSSID,
+					prConnSettings->ucSSIDLen);
+	}
+
 
 	DBGLOG(SAA, INFO, "[SAA]saaSendAuthAssoc, StaState:%d\n",
 		prStaRec->ucStaState);
@@ -156,7 +188,7 @@ void saaSendAuthAssoc(IN struct ADAPTER *prAdapter,
 
 		/* Record the Status Code of Authentication Request */
 		prStaRec->u2StatusCode =
-			(prConnSettings->fgIsSendAssoc) ?
+			fgIsSendAssoc ?
 			STATUS_CODE_ASSOC_TIMEOUT
 			: STATUS_CODE_AUTH_TIMEOUT;
 
@@ -171,8 +203,8 @@ void saaSendAuthAssoc(IN struct ADAPTER *prAdapter,
 	} else {
 		prStaRec->ucTxAuthAssocRetryCount++;
 		/* Prepare to send authentication frame */
-		if (!prConnSettings->fgIsSendAssoc) {
-			if (!prConnSettings->fgIsP2pConn) {
+		if (!fgIsSendAssoc) {
+			if (!fgIsP2pConn) {
 				/* Fill authentication transaction
 				 * sequence number
 				 * depends on auth type
@@ -218,15 +250,8 @@ void saaSendAuthAssoc(IN struct ADAPTER *prAdapter,
 			 * sending association request,
 			 * copy fro m AIS search step
 			 */
-			kalMemZero(&rSsid,
-				sizeof(struct PARAM_SSID));
 
-			if (prConnSettings->ucSSIDLen) {
-				COPY_SSID(rSsid.aucSsid,
-						  rSsid.u4SsidLen,
-						  prConnSettings->aucSSID,
-						  prConnSettings->ucSSIDLen);
-
+			if (rSsid.u4SsidLen) {
 				prBssDesc =
 					scanSearchBssDescByBssidAndSsid(
 					prAdapter,
@@ -239,27 +264,27 @@ void saaSendAuthAssoc(IN struct ADAPTER *prAdapter,
 					MAC2STR(prBssDesc->aucBSSID),
 					prBssDesc->aucSSID,
 					MAC2STR(prStaRec->aucMacAddr),
-					prConnSettings->aucSSID);
+					rSsid.aucSsid);
 			} else {
 				prBssDesc =
 					scanSearchBssDescByBssidAndChanNum(
 					prAdapter,
 					prStaRec->aucMacAddr,
 					TRUE,
-					prConnSettings->ucChannelNum);
+					ucChannelNum);
 				DBGLOG(RSN, INFO, "[RSN] prBssDesc["
 					MACSTR" ,%s] Searched by BSSID["
 					MACSTR"] & ChanNum %d.\n",
 					MAC2STR(prBssDesc->aucBSSID),
 					prBssDesc->aucSSID,
 					MAC2STR(prStaRec->aucMacAddr),
-					prConnSettings->ucChannelNum);
+					ucChannelNum);
 			}
 
 			prAisSpecBssInfo =
 			&(prAdapter->rWifiVar.rAisSpecificBssInfo);
 			if (rsnPerformPolicySelection(prAdapter,
-				prBssDesc)) {
+				prBssDesc) && (!fgIsP2pConn)) {
 				if (prAisSpecBssInfo->fgCounterMeasure)
 					DBGLOG(RSN, WARN,
 					"Skip whle at counter measure perid\n");
@@ -291,6 +316,9 @@ void saaSendAuthAssoc(IN struct ADAPTER *prAdapter,
 				cnmStaRecChangeState(prAdapter,
 						prStaRec, STA_STATE_2);
 			}
+
+			bssUpdateStaRecFromCfgAssoc(prAdapter,
+				prBssDesc, prStaRec);
 
 			rStatus =
 				assocSendReAssocReqFrame(prAdapter,
@@ -1362,12 +1390,6 @@ void saaFsmRunEventRxAuth(IN struct ADAPTER *prAdapter,
 					IS_STA_IN_P2P(prStaRec)) {
 
 				ucRoleIdx = (uint8_t)prBssInfo->u4PrivateData;
-				cfg80211_rx_mlme_mgmt(
-				prGlueInfo->prP2PInfo[ucRoleIdx]
-							->aprRoleHandler,
-					(const u8 *)prAuthFrame,
-					(size_t)prSwRfb->u2PacketLen);
-
 				prNetDev = prGlueInfo->prP2PInfo[ucRoleIdx]
 						->aprRoleHandler;
 				DBGLOG(SAA, INFO,
@@ -1377,17 +1399,18 @@ void saaFsmRunEventRxAuth(IN struct ADAPTER *prAdapter,
 					prNetDev->ifindex,
 					MAC2STR(prNetDev->dev_addr));
 			} else {
-				cfg80211_rx_mlme_mgmt(prGlueInfo->prDevHandler,
-					(const u8 *)prAuthFrame,
-					(size_t)prSwRfb->u2PacketLen);
+				prNetDev = prGlueInfo->prDevHandler;
 				DBGLOG(SAA, INFO,
 					"name %s, ifindex %d, dev_addr"
 					MACSTR"\n",
-					prGlueInfo->prDevHandler->name,
-					prGlueInfo->prDevHandler->ifindex,
-					MAC2STR(prGlueInfo->prDevHandler
-							->dev_addr));
+					prNetDev->name,
+					prNetDev->ifindex,
+					MAC2STR(prNetDev->dev_addr));
 			}
+			kalIndicateRxAuthToUpperLayer(
+					prNetDev,
+					(uint8_t *)prAuthFrame,
+					(size_t)prSwRfb->u2PacketLen);
 			DBGLOG(SAA, INFO,
 				"notification of RX Authentication Done\n");
 		}
@@ -1574,8 +1597,11 @@ uint32_t saaFsmRunEventRxAssoc(IN struct ADAPTER *prAdapter,
 	struct GLUE_INFO *prGlueInfo = NULL;
 	struct WLAN_ASSOC_RSP_FRAME *prAssocRspFrame = NULL;
 	struct CONNECTION_SETTINGS *prConnSettings = NULL;
+	struct P2P_CONNECTION_SETTINGS *prP2pConnSettings = NULL;
 	struct BSS_INFO *prBssInfo = NULL;
 	uint8_t ucRoleIdx = 0;
+	struct net_device *prNetDev = NULL;
+	struct cfg80211_bss *bss;
 #endif
 
 	ASSERT(prSwRfb);
@@ -1587,7 +1613,6 @@ uint32_t saaFsmRunEventRxAssoc(IN struct ADAPTER *prAdapter,
 		DBGLOG(SAA, INFO, "No glue info in saaFsmRunEventRxAssoc()\n");
 		return WLAN_STATUS_FAILURE;
 	}
-	prConnSettings = &prGlueInfo->prAdapter->rWifiVar.rConnSettings;
 #endif
 	DBGLOG(SAA, INFO, "RX Assoc Resp\n");
 
@@ -1620,6 +1645,22 @@ uint32_t saaFsmRunEventRxAssoc(IN struct ADAPTER *prAdapter,
 			(struct WLAN_ASSOC_RSP_FRAME *)
 			prSwRfb->pvHeader;
 
+		prBssInfo = GET_BSS_INFO_BY_INDEX(prAdapter,
+						prStaRec->ucBssIndex);
+		if (prAdapter->fgIsP2PRegistered &&
+				IS_STA_IN_P2P(prStaRec)) {
+			ucRoleIdx = (uint8_t)prBssInfo->u4PrivateData;
+			prP2pConnSettings = prAdapter->
+				rWifiVar.prP2PConnSettings[ucRoleIdx];
+			prNetDev = prGlueInfo->
+				prP2PInfo[ucRoleIdx]->aprRoleHandler;
+			bss = prP2pConnSettings->bss;
+		} else {
+			prNetDev = prGlueInfo->prDevHandler;
+			prConnSettings = &(prAdapter->rWifiVar.rConnSettings);
+			bss = prConnSettings->bss;
+		}
+
 		/* The BSS from cfg80211_ops.assoc must give back to
 		 * cfg80211_send_rx_assoc() or
 		 * to cfg80211_assoc_timeout().
@@ -1629,47 +1670,22 @@ uint32_t saaFsmRunEventRxAssoc(IN struct ADAPTER *prAdapter,
 		 */
 		DBGLOG(SAA, INFO,
 			"Report RX Assoc to upper layer, %s\n",
-			prConnSettings->bss ? "DO IT" : "Oops");
-		if (prConnSettings->bss) {
-#if KERNEL_VERSION(3, 18, 0) <= CFG80211_VERSION_CODE
-		/* [TODO] Set uapsd_queues field to zero first,
-		 * fill it if needed
-		 */
-		prBssInfo = GET_BSS_INFO_BY_INDEX(prAdapter,
-						prStaRec->ucBssIndex);
-		if (prAdapter->fgIsP2PRegistered && IS_STA_IN_P2P(prStaRec)) {
-			ucRoleIdx = (uint8_t)prBssInfo->u4PrivateData;
-			cfg80211_rx_assoc_resp(
-				prGlueInfo->prP2PInfo[ucRoleIdx]
-							->aprRoleHandler,
-				prConnSettings->bss,
-				(const u8 *)prAssocRspFrame,
-				(size_t)prSwRfb->u2PacketLen, 0);
-		} else {
-			cfg80211_rx_assoc_resp(prGlueInfo->prDevHandler,
-				prConnSettings->bss,
-				(const u8 *)prAssocRspFrame,
-				(size_t)prSwRfb->u2PacketLen, 0);
-		}
-#else
-		if (prAdapter->fgIsP2PRegistered && IS_STA_IN_P2P(prStaRec)) {
-			ucRoleIdx = (uint8_t)prBssInfo->u4PrivateData;
-			cfg80211_rx_assoc_resp(
-				prGlueInfo->prP2PInfo[ucRoleIdx]
-							->aprRoleHandler,
-				prConnSettings->bss,
-				(const u8 *)prAssocRspFrame,
+			bss ? "DO IT" : "Oops");
+		if (bss) {
+			kalIndicateRxAssocToUpperLayer(
+				prNetDev,
+				(uint8_t *)prAssocRspFrame,
+				bss,
 				(size_t)prSwRfb->u2PacketLen);
-		} else {
-			cfg80211_rx_assoc_resp(prGlueInfo->prDevHandler,
-				prConnSettings->bss,
-				(const u8 *)prAssocRspFrame,
-				(size_t)prSwRfb->u2PacketLen);
-		}
-#endif
+
 			DBGLOG(SAA, INFO,
 				"Report RX Assoc to upper layer, Done\n");
-			prConnSettings->bss = NULL;
+			if (prAdapter->fgIsP2PRegistered &&
+					IS_STA_IN_P2P(prStaRec)) {
+				prP2pConnSettings->bss = NULL;
+			} else {
+				prConnSettings->bss = NULL;
+			}
 		} else
 			DBGLOG(SAA, WARN,
 				"Rx Assoc Resp without specific BSS\n");
@@ -1806,7 +1822,6 @@ uint32_t saaFsmRunEventRxDeauth(IN struct ADAPTER *prAdapter,
 	struct BSS_INFO *prBssInfo = NULL;
 	struct net_device *prNetDev = NULL;
 	uint8_t ucRoleIdx = 0;
-	struct CONNECTION_SETTINGS *prConnSettings = NULL;
 #endif
 
 	ASSERT(prSwRfb);
@@ -1899,7 +1914,7 @@ uint32_t saaFsmRunEventRxDeauth(IN struct ADAPTER *prAdapter,
 						"notification of RX deauthentication %d\n",
 						prSwRfb->u2PacketLen);
 
-					cfg80211_rx_mlme_mgmt(
+					kalIndicateRxDeauthToUpperLayer(
 						prGlueInfo->prDevHandler,
 						(uint8_t *)prDeauthFrame,
 						(size_t)prSwRfb->u2PacketLen);
@@ -1929,7 +1944,7 @@ uint32_t saaFsmRunEventRxDeauth(IN struct ADAPTER *prAdapter,
 			prBssInfo = GET_BSS_INFO_BY_INDEX(prAdapter,
 							prStaRec->ucBssIndex);
 			ucRoleIdx = (uint8_t)prBssInfo->u4PrivateData;
-			cfg80211_rx_mlme_mgmt(
+			kalIndicateRxDeauthToUpperLayer(
 				prGlueInfo->prP2PInfo[ucRoleIdx]
 							->aprRoleHandler,
 				(uint8_t *)prDeauthFrame,
@@ -1938,9 +1953,6 @@ uint32_t saaFsmRunEventRxDeauth(IN struct ADAPTER *prAdapter,
 			DBGLOG(SAA, INFO,
 				"notification of RX deauthentication Done\n");
 
-			prConnSettings = &prGlueInfo->prAdapter
-						->rWifiVar.rConnSettings;
-			prConnSettings->fgIsP2pConn = FALSE;
 			prNetDev = prGlueInfo
 					->prP2PInfo[ucRoleIdx]->aprRoleHandler;
 			DBGLOG(SAA, INFO,
@@ -2121,7 +2133,6 @@ uint32_t saaFsmRunEventRxDisassoc(IN struct ADAPTER *prAdapter,
 	struct BSS_INFO *prBssInfo = NULL;
 	struct net_device *prNetDev = NULL;
 	uint8_t ucRoleIdx = 0;
-	struct CONNECTION_SETTINGS *prConnSettings = NULL;
 #endif
 
 	ASSERT(prSwRfb);
@@ -2217,7 +2228,7 @@ uint32_t saaFsmRunEventRxDisassoc(IN struct ADAPTER *prAdapter,
 						"notification of RX disassociation %d\n",
 						prSwRfb->u2PacketLen);
 					if (wdev->current_bss)
-						cfg80211_rx_mlme_mgmt(
+					kalIndicateRxDisassocToUpperLayer(
 						prGlueInfo->prDevHandler,
 						(uint8_t *)prDisassocFrame,
 						(size_t)prSwRfb->u2PacketLen);
@@ -2254,16 +2265,15 @@ uint32_t saaFsmRunEventRxDisassoc(IN struct ADAPTER *prAdapter,
 						->aprRoleHandler->ieee80211_ptr;
 
 			if (wdev->current_bss)
-				cfg80211_rx_mlme_mgmt(
+				kalIndicateRxDisassocToUpperLayer(
 					prGlueInfo->prP2PInfo[ucRoleIdx]
 					->aprRoleHandler,
 					(uint8_t *)prDisassocFrame,
 					(size_t)prSwRfb->u2PacketLen);
+			prAdapter->rWifiVar.
+				prP2PConnSettings[ucRoleIdx]->bss = NULL;
 			DBGLOG(SAA, INFO,
 				"notification of RX disassociation Done\n");
-			prConnSettings = &prGlueInfo->prAdapter
-						->rWifiVar.rConnSettings;
-			prConnSettings->fgIsP2pConn = FALSE;
 			prNetDev = prGlueInfo
 				->prP2PInfo[ucRoleIdx]->aprRoleHandler;
 			DBGLOG(SAA, INFO,

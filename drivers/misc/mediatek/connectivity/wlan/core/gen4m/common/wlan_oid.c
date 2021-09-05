@@ -1417,6 +1417,29 @@ wlanoidSetConnect(IN struct ADAPTER *prAdapter,
 		}
 	}
 
+	/* Check former assocIE to prevent memory leakage in situations like
+	* upper layer requests connection without disconnecting first, ...
+	*/
+	if (prConnSettings->assocIeLen > 0) {
+		kalMemFree(prConnSettings->pucAssocIEs, VIR_MEM_TYPE,
+			prConnSettings->assocIeLen);
+		prConnSettings->assocIeLen = 0;
+	}
+
+	if (pParamConn->u4IesLen > 0) {
+		prConnSettings->assocIeLen = pParamConn->u4IesLen;
+		prConnSettings->pucAssocIEs =
+			kalMemAlloc(prConnSettings->assocIeLen, VIR_MEM_TYPE);
+		if (prConnSettings->pucAssocIEs) {
+			kalMemCopy(prConnSettings->pucAssocIEs,
+				pParamConn->pucIEs, prConnSettings->assocIeLen);
+		} else {
+			DBGLOG(INIT, INFO,
+				"allocate memory for prConnSettings->pucAssocIEs failed!\n");
+				prConnSettings->assocIeLen = 0;
+		}
+	}
+
 	if (fgEqualSsid || fgEqualBssid)
 		prAisAbortMsg->fgDelayIndication = TRUE;
 	else
@@ -3151,6 +3174,9 @@ wlanoidSetRemoveKey(IN struct ADAPTER *prAdapter,
 			}
 			ASSERT(prBssInfo->wepkeyWlanIdx < WTBL_SIZE);
 			ucRemoveBCKeyAtIdx = prBssInfo->wepkeyWlanIdx;
+			secPrivacyFreeForEntry(prAdapter,
+					prBssInfo->wepkeyWlanIdx);
+			prBssInfo->wepkeyWlanIdx = WTBL_RESERVED_ENTRY;
 		} else {
 			DBGLOG(RSN, INFO, "Remove group key id = %d",
 			       u4KeyIndex);
@@ -3167,6 +3193,14 @@ wlanoidSetRemoveKey(IN struct ADAPTER *prAdapter,
 						u4KeyIndex] < WTBL_SIZE);
 				ucRemoveBCKeyAtIdx =
 					prBssInfo->ucBMCWlanIndexS[u4KeyIndex];
+
+				secPrivacyFreeForEntry(prAdapter,
+				    prBssInfo->ucBMCWlanIndexS[u4KeyIndex]);
+
+				prBssInfo->ucBMCWlanIndexSUsed[u4KeyIndex]
+					= FALSE;
+				prBssInfo->ucBMCWlanIndexS[u4KeyIndex]
+					= WTBL_RESERVED_ENTRY;
 			}
 		}
 
@@ -3458,6 +3492,13 @@ wlanoidQueryEncryptionStatus(IN struct ADAPTER *prAdapter,
 		prAisBssInfo->fgBcDefaultKeyExist;
 
 	switch (prConnSettings->eEncStatus) {
+	case ENUM_ENCRYPTION4_ENABLED:
+		if (fgTransmitKeyAvailable)
+			eEncStatus = ENUM_ENCRYPTION4_ENABLED;
+		else
+			eEncStatus = ENUM_ENCRYPTION4_KEY_ABSENT;
+		break;
+
 	case ENUM_ENCRYPTION3_ENABLED:
 		if (fgTransmitKeyAvailable)
 			eEncStatus = ENUM_ENCRYPTION3_ENABLED;
@@ -3592,6 +3633,13 @@ wlanoidSetEncryptionStatus(IN struct ADAPTER *prAdapter,
 		DBGLOG(RSN, INFO, "Enable Encryption3\n");
 		break;
 
+	case ENUM_ENCRYPTION4_ENABLED: /* Eanble GCMP256 */
+		secSetCipherSuite(prAdapter,
+				  CIPHER_FLAG_CCMP | CIPHER_FLAG_GCMP256,
+				  ucBssIndex);
+		DBGLOG(RSN, INFO, "Enable Encryption4\n");
+		break;
+
 	default:
 		DBGLOG(RSN, INFO, "Unacceptible encryption status: %d\n",
 		       *(enum ENUM_WEP_STATUS *) pvSetBuffer);
@@ -3650,7 +3698,7 @@ wlanoidQueryCapability(IN struct ADAPTER *prAdapter,
 
 	prCap->u4Length = *pu4QueryInfoLen;
 	prCap->u4Version = 2;	/* WPA2 */
-	prCap->u4NoOfAuthEncryptPairsSupported = 14;
+	prCap->u4NoOfAuthEncryptPairsSupported = 15;
 
 	prAuthenticationEncryptionSupported =
 		&prCap->arAuthenticationEncryptionSupported[0];
@@ -3726,6 +3774,11 @@ wlanoidQueryCapability(IN struct ADAPTER *prAdapter,
 		AUTH_MODE_WPA2_PSK;
 	prAuthenticationEncryptionSupported[13].eEncryptStatusSupported
 		= ENUM_ENCRYPTION3_ENABLED;
+
+	prAuthenticationEncryptionSupported[14].eAuthModeSupported
+		= AUTH_MODE_WPA2_PSK;
+	prAuthenticationEncryptionSupported[14].eEncryptStatusSupported
+		= ENUM_ENCRYPTION4_ENABLED;
 
 	return WLAN_STATUS_SUCCESS;
 
@@ -11432,7 +11485,7 @@ wlanoidSetNvramWrite(IN struct ADAPTER *prAdapter,
 	rNvRwInfo = (struct PARAM_CUSTOM_EEPROM_RW_STRUCT *)
 			pvSetBuffer;
 
-	if (rNvRwInfo->ucMethod == PARAM_EEPROM_WRITE_NVRAM) {
+	if (rNvRwInfo->ucMethod == PARAM_EEPROM_WRITE_NVRAM)
 		fgStatus = kalCfgDataWrite8(prAdapter->prGlueInfo,
 			rNvRwInfo->info.rNvram.u2NvIndex,
 			rNvRwInfo->info.rNvram.u2NvData & 0x00FF);
@@ -11446,7 +11499,7 @@ wlanoidSetNvramWrite(IN struct ADAPTER *prAdapter,
 		if (fgStatus == TRUE)
 			wlanLoadManufactureData(prAdapter,
 				kalGetConfiguration(prAdapter->prGlueInfo));
-	} else
+	else
 		fgStatus = kalCfgDataWrite16(prAdapter->prGlueInfo,
 				     rNvRwInfo->info.rEeprom.ucEepromIndex <<
 				     1, /* change to byte offset */
@@ -16404,7 +16457,7 @@ wlanoidExternalAuthDone(IN struct ADAPTER *prAdapter,
 	prStaRec = cnmGetStaRecByAddress(prAdapter, ucBssIndex, params->bssid);
 	if (!prStaRec) {
 		DBGLOG(REQ, WARN, "SAE-confirm failed with bssid:" MACSTR "\n",
-		       params->bssid);
+		       MAC2STR(params->bssid));
 		return WLAN_STATUS_INVALID_DATA;
 	}
 

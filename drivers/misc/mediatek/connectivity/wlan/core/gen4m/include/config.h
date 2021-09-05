@@ -738,7 +738,11 @@
 #define CFG_SUPPORT_HOTSPOT_OPTIMIZATION        0
 #define CFG_HOTSPOT_OPTIMIZATION_BEACON_INTERVAL 300
 #define CFG_HOTSPOT_OPTIMIZATION_DTIM           1
+#if KERNEL_VERSION(5, 4, 0) <= LINUX_VERSION_CODE
+#define CFG_AUTO_CHANNEL_SEL_SUPPORT            0
+#else
 #define CFG_AUTO_CHANNEL_SEL_SUPPORT            1
+#endif
 
 #define CFG_SUPPORT_SOFTAP_WPA3	1
 
@@ -886,7 +890,11 @@
 
 #define CFG_SHOW_MACADDR_SOURCE			1
 
+#ifdef BUILD_QA_DBG
 #define CFG_SHOW_FULL_MACADDR     1
+#else
+#define CFG_SHOW_FULL_MACADDR     0
+#endif
 
 #ifndef CFG_SUPPORT_VO_ENTERPRISE
 #define CFG_SUPPORT_VO_ENTERPRISE               1
@@ -1345,20 +1353,16 @@
 #define CFG_WLAN_ASSISTANT_NVRAM		1
 
 /*------------------------------------------------------------------------------
- * Flags of WORKAROUND HWITS00012836 WTBL_SEARCH_FAIL
+ * SW handles WTBL_SEARCH_FAIL
  *------------------------------------------------------------------------------
  */
-#ifndef CFG_WIFI_WORKAROUND_HWITS00012836_WTBL_SEARCH_FAIL
-#define CFG_WIFI_WORKAROUND_HWITS00012836_WTBL_SEARCH_FAIL 0
-#endif
+#define CFG_WIFI_SW_WTBL_SEARCH_FAIL 1
 
 /*------------------------------------------------------------------------------
- * Flags of WORKAROUND HWITS00010371 PMF_CIPHER_MISMATCH
+ * SW enables CIPHER_MISMATCH
  *------------------------------------------------------------------------------
  */
-#ifndef CFG_WIFI_WORKAROUND_HWITS00010371_PMF_CIPHER_MISMATCH
-#define CFG_WIFI_WORKAROUND_HWITS00010371_PMF_CIPHER_MISMATCH 0
-#endif
+#define CFG_WIFI_SW_CIPHER_MISMATCH 1
 
 /*------------------------------------------------------------------------------
  * CONNINFRA SUPPORT (Without WMT)

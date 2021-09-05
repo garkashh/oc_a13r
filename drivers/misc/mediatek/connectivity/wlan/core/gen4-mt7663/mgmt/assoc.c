@@ -1259,9 +1259,10 @@ uint32_t assocSendDisAssocFrame(IN struct ADAPTER *prAdapter,
 		MAC_TX_RESERVED_FIELD);
 	DBGLOG(SAA, INFO, "notification of TX disassociation, %d\n",
 		prMsduInfo->u2FrameLength);
-	cfg80211_tx_mlme_mgmt(prAdapter->prGlueInfo->prDevHandler,
-		(uint8_t *)prDisassocFrame,
-		(size_t)prMsduInfo->u2FrameLength);
+	kalIndicateTxDisassocToUpperLayer(
+				prAdapter->prGlueInfo->prDevHandler,
+				(uint8_t *)prDisassocFrame,
+				(size_t)prMsduInfo->u2FrameLength);
 	DBGLOG(SAA, INFO, "notification of TX disassociation, Done\n");
 #endif
 

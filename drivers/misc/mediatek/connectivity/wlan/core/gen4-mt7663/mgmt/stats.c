@@ -137,7 +137,11 @@ void StatsEnvRxTime2Host(IN struct ADAPTER *prAdapter, struct sk_buff *prSkb)
 	uint64_t u8IntTime = 0;
 	uint64_t u8RxTime = 0;
 	uint32_t u4Delay = 0;
+#if KERNEL_VERSION(5, 0, 0) <= LINUX_VERSION_CODE
+	struct timespec64 tval;
+#else
 	struct timeval tval;
+#endif
 	struct rtc_time tm;
 
 	if ((g_ucTxRxFlag & BIT(1)) == 0)
@@ -160,7 +164,11 @@ void StatsEnvRxTime2Host(IN struct ADAPTER *prAdapter, struct sk_buff *prSkb)
 	u8IntTime = GLUE_RX_GET_PKT_INT_TIME(prSkb);
 	u4Delay = ((uint32_t)(sched_clock() - u8IntTime))/NSEC_PER_USEC;
 	u8RxTime = GLUE_RX_GET_PKT_RX_TIME(prSkb);
+#if KERNEL_VERSION(5, 0, 0) <= LINUX_VERSION_CODE
+	ktime_get_real_ts64(&tval);
+#else
 	do_gettimeofday(&tval);
+#endif
 	rtc_time_to_tm(tval.tv_sec, &tm);
 
 	switch (ucIpProto) {
@@ -170,6 +178,7 @@ void StatsEnvRxTime2Host(IN struct ADAPTER *prAdapter, struct sk_buff *prSkb)
 		u2UdpDstPort = (pucEth[22] << 8) | pucEth[23];
 		if (g_u2RxUdpPort && (u2UdpSrcPort != g_u2RxUdpPort))
 			break;
+		/* FALLTHRU */
 	case IP_PRO_ICMP:
 		u4TotalRx++;
 		if (g_u4RxDelayThreshold && (u4Delay <= g_u4RxDelayThreshold)) {
@@ -183,7 +192,11 @@ void StatsEnvRxTime2Host(IN struct ADAPTER *prAdapter, struct sk_buff *prSkb)
 			u4Delay,
 			((uint32_t)(u8RxTime - u8IntTime))/NSEC_PER_USEC,
 			u8IntTime, u4NoDelayRx, u4TotalRx,
+#if KERNEL_VERSION(5, 0, 0) <= LINUX_VERSION_CODE
+			tm.tm_hour, tm.tm_min, tm.tm_sec, tval.tv_nsec/1000);
+#else
 			tm.tm_hour, tm.tm_min, tm.tm_sec, tval.tv_usec);
+#endif
 		break;
 	default:
 		break;
@@ -243,6 +256,7 @@ void StatsEnvTxTime2Hif(IN struct ADAPTER *prAdapter,
 		u2UdpSrcPort = (pucEthBody[20] << 8) | pucEthBody[21];
 		if (g_u2TxUdpPort && (u2UdpDstPort != g_u2TxUdpPort))
 			break;
+		/* FALLTHRU */
 	case IP_PRO_ICMP:
 		u4TotalTx++;
 		if (g_u4TxDelayThreshold

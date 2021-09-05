@@ -336,6 +336,12 @@ keyStructBuf[100];	/* add/remove key shared buffer */
 	nla_parse(tb, maxtype, head, len, policy)
 #endif
 
+#if KERNEL_VERSION(5, 3, 0) <= CFG80211_VERSION_CODE
+#define VENDOR_OPS_SET_POLICY(_val) .policy = (_val),
+#else
+#define VENDOR_OPS_SET_POLICY(_val)
+#endif
+
 /*******************************************************************************
  *				P R I V A T E   D A T A
  *

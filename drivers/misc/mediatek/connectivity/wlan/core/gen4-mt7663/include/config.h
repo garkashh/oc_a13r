@@ -875,6 +875,10 @@
 
 #define WNM_UNIT_TEST CFG_SUPPORT_802_11V
 
+#ifndef CFG_SUPPORT_DPP
+#define CFG_SUPPORT_DPP				1
+#endif
+
 #define CFG_SUPPORT_PPR2			1
 #define CFG_DRIVER_COMPOSE_ASSOC_REQ		1
 #define CFG_SUPPORT_802_11AC			1
@@ -891,6 +895,11 @@
 
 /* Enable driver support multicore */
 #define CFG_SUPPORT_MULTITHREAD			1
+
+/* add cfg80211 tx/rx api to work queue */
+#ifndef CFG_SUPPORT_CFG80211_QUEUE
+#define CFG_SUPPORT_CFG80211_QUEUE	0
+#endif
 
 #define CFG_SUPPORT_MTK_SYNERGY			1
 
@@ -1367,6 +1376,20 @@
 
 #ifndef CFG_SUPPORT_PROBE_REQ_REPORT
 #define CFG_SUPPORT_PROBE_REQ_REPORT 1
+#endif
+
+/* Multi dongle support (eg. 7668/7663) */
+#ifndef CFG_SUPPORT_MULTI_DONGLE
+#define CFG_SUPPORT_MULTI_DONGLE 0
+#endif
+
+
+/*------------------------------------------------------------------------------
+ * Support platform power off control scenario
+ *------------------------------------------------------------------------------
+ */
+#ifndef CFG_POWER_OFF_CTRL_SUPPORT
+#define CFG_POWER_OFF_CTRL_SUPPORT	0
 #endif
 
 /*******************************************************************************

@@ -273,7 +273,6 @@ struct CONNECTION_SETTINGS {
 	u_int8_t aucAuthData[AUTH_DATA_MAX_LEN];
 	u_int8_t ucChannelNum;
 	uint8_t  ucRoleIdx;
-	uint8_t  fgIsP2pConn;
 #endif
 #if CFG_SUPPORT_OWE
 	/* for OWE info store, when upper layer set rsn info */
@@ -1366,6 +1365,11 @@ struct ADAPTER {
 	struct QUE rTxP1Queue;
 #else
 	struct QUE rTxPQueue[TX_PORT_NUM];
+#endif
+#if CFG_SUPPORT_CFG80211_AUTH
+#if CFG_SUPPORT_CFG80211_QUEUE
+	struct QUE rCfg80211Queue;
+#endif
 #endif
 	struct QUE rRxQueue;
 	struct QUE rTxDataDoneQueue;

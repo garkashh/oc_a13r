@@ -614,6 +614,10 @@ struct BSS_INFO {
 	uint8_t aucCountryStr[3];
 	uint8_t aucSubbandTriplet[253];
 	enum ENUM_IFTYPE eIftype;
+
+	/* Buffer for WPA2 PMKID */
+	/* The PMKID cache lifetime is expire by media_disconnect_indication */
+	struct LINK rPmkidCache;
 };
 
 /* Support AP Selection */
@@ -888,7 +892,9 @@ struct WIFI_VAR {
 	uint8_t ucTWTResponder;
 	uint8_t ucTWTStaBandBitmap;
 #endif
-
+#if (CFG_TWT_SMART_STA == 1)
+	uint8_t ucTWTSmartSta;
+#endif
 	uint8_t ucTspec;
 	uint8_t ucUapsd;
 	uint8_t ucStaUapsd;
@@ -1151,6 +1157,8 @@ struct WIFI_VAR {
 	uint32_t uArpMonitorNumber;
 	uint32_t uArpMonitorRxPktNum;
 #endif /* ARP_MONITER_ENABLE */
+
+	uint8_t fgSapCheckPmkidInDriver;
 };
 
 /* cnm_timer module */
@@ -1634,6 +1642,9 @@ struct ADAPTER {
 
 	/* COEX feature */
 	uint32_t u4FddMode;
+
+	/* host status EMI offset*/
+	uint32_t u4HostStatusEmiOffset;
 
 #if CFG_WOW_SUPPORT
 	struct WOW_CTRL	rWowCtrl;

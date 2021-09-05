@@ -1189,6 +1189,14 @@ void aisFsmSteps(IN struct ADAPTER *prAdapter, enum ENUM_AIS_STATE eNextState)
 				prConnSettings->fgIsDisconnectedByNonRequest);
 			if (prAisReq == NULL
 			    || prAisReq->eReqType == AIS_REQUEST_RECONNECT) {
+				if (IS_NET_ACTIVE(prAdapter,
+					prAisBssInfo->ucBssIndex)) {
+					UNSET_NET_ACTIVE(prAdapter,
+					prAisBssInfo->ucBssIndex);
+					nicDeactivateNetwork(prAdapter,
+					prAisBssInfo->ucBssIndex);
+				}
+
 				if (prConnSettings->fgIsConnReqIssued == TRUE
 				    &&
 				    prConnSettings->fgIsDisconnectedByNonRequest
@@ -1196,18 +1204,13 @@ void aisFsmSteps(IN struct ADAPTER *prAdapter, enum ENUM_AIS_STATE eNextState)
 
 					prAisFsmInfo->fgTryScan = TRUE;
 
-					if (!IS_NET_ACTIVE
-					    (prAdapter,
-					     prAdapter->
-					     prAisBssInfo->ucBssIndex)) {
-						SET_NET_ACTIVE(prAdapter,
-						prAdapter->prAisBssInfo->
-						ucBssIndex);
+					SET_NET_ACTIVE(prAdapter,
+					prAdapter->prAisBssInfo->
+					ucBssIndex);
 						/* sync with firmware */
-						nicActivateNetwork(prAdapter,
-						prAdapter->prAisBssInfo->
-						ucBssIndex);
-					}
+					nicActivateNetwork(prAdapter,
+					prAdapter->prAisBssInfo->
+					ucBssIndex);
 
 					SET_NET_PWR_STATE_ACTIVE(prAdapter,
 					prAdapter->prAisBssInfo->ucBssIndex);
@@ -1232,16 +1235,14 @@ void aisFsmSteps(IN struct ADAPTER *prAdapter, enum ENUM_AIS_STATE eNextState)
 						DBGLOG(BSS, INFO,
 						       "[BSSidx][Network]=%d PNOEnable&&OP_MODE_INFRASTRUCTURE,KEEP ACTIVE\n",
 						prAisBssInfo->ucBssIndex);
-					} else
+
+						SET_NET_ACTIVE(prAdapter,
+						prAdapter->prAisBssInfo->
+						ucBssIndex);
+						nicActivateNetwork(prAdapter,
+						prAdapter->prAisBssInfo->
+						ucBssIndex);
 #endif
-					{
-						UNSET_NET_ACTIVE(prAdapter,
-						prAdapter->prAisBssInfo->
-						ucBssIndex);
-						nicDeactivateNetwork(prAdapter,
-						prAdapter->prAisBssInfo->
-						ucBssIndex);
-					}
 
 					/* check for other pending request */
 					if (prAisReq && (aisFsmIsRequestPending
@@ -2137,6 +2138,10 @@ void aisFsmSteps(IN struct ADAPTER *prAdapter, enum ENUM_AIS_STATE eNextState)
 			prAdapter->rWifiVar.rConnSettings.eReConnectLevel =
 			    RECONNECT_LEVEL_MIN;
 			prConnSettings->fgIsDisconnectedByNonRequest = TRUE;
+			if (prAisFsmInfo->prTargetBssDesc) {
+				prAisFsmInfo->prTargetBssDesc->fgIsConnecting
+					= FALSE;
+			}
 
 			nicMediaJoinFailure(prAdapter,
 					    prAdapter->prAisBssInfo->ucBssIndex,
@@ -3079,8 +3084,17 @@ enum ENUM_AIS_STATE aisFsmJoinCompleteAction(IN struct ADAPTER *prAdapter,
 						prConnSettings->ucChannelNum);
 				}
 #endif
-				if (prBssDesc == NULL)
+				if (prBssDesc == NULL) {
+					DBGLOG(AIS, WARN,
+					"prBssDesc == NULL ->JOIN FAIL");
+					/* Free STA-REC */
+					if (prStaRec !=
+						prAisBssInfo->prStaRecOfAP)
+						cnmStaRecFree(prAdapter,
+							prStaRec);
+					eNextState = AIS_STATE_JOIN_FAILURE;
 					break;
+				}
 
 				DBGLOG(AIS, TRACE,
 				       "ucJoinFailureCount=%d %d, Status=%d Reason=%d, eConnectionState=%d",
@@ -4275,7 +4289,11 @@ void aisCollectDisconnInfo(IN struct ADAPTER *prAdapter)
 
 	prAisBssInfo = prAdapter->prAisBssInfo;
 
+#if KERNEL_VERSION(5, 0, 0) <= LINUX_VERSION_CODE
+	ktime_get_real_ts64(&prDisconn->tv);
+#else
 	do_gettimeofday(&prDisconn->tv);
+#endif
 
 	prDisconn->ucTrigger = g_rDisconnInfoTemp.ucTrigger;
 	prDisconn->ucDisConnReason = prAisBssInfo->ucReasonOfDisconnect;

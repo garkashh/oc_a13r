@@ -573,7 +573,7 @@ BOOLEAN wlanoidGetChannelInfo(IN P_ADAPTER_T prAdapter, IN PUINT_8 puPartialScan
 				continue;
 			}
 
-			if (i >= MAXIMUM_OPERATION_CHANNEL_LIST)
+			if (i >= MAXIMUM_OPERATION_CHANNEL_LIST || i < 0)
 				break;
 			if (channel_tmp->band == IEEE80211_BAND_2GHZ)
 				PartialScanChannel->arChnlInfoList[i].eBand = BAND_2G4;
@@ -12641,11 +12641,15 @@ wlanoidConfigRoaming(IN P_ADAPTER_T prAdapter, IN PVOID pvSetBuffer,
 			}
 
 			prBlackList = aisAddBlacklist(prAdapter, prBssDesc);
-			prBlackList->fgIsInFWKBlacklist = TRUE;
-			DBGLOG(REQ, INFO,
-			       "Receives roaming blacklist SSID=%s addr=%pM len=%d %d\n",
-			       prBlackList->aucSSID, prBlackList->aucBSSID,
-			       len_shift, u4SetBufferLen);
+			if (prBlackList != NULL) {
+				prBlackList->fgIsInFWKBlacklist = TRUE;
+				DBGLOG(REQ, INFO,
+					"Receives roaming blacklist SSID=%s addr=%pM len=%d %d\n",
+					prBlackList->aucSSID, prBlackList->aucBSSID,
+					len_shift, u4SetBufferLen);
+			} else {
+				DBGLOG(REQ, ERROR, "add blacklist failed\n");
+			}
 		}
 	}
 
@@ -12706,8 +12710,18 @@ wlanoidSetScanMacOui(IN P_ADAPTER_T prAdapter,
 {
 	P_BSS_INFO_T prBssInfo = NULL;
 
-	ASSERT(prAdapter);
-	ASSERT(prAdapter->prGlueInfo);
+	if (!prAdapter) {
+		DBGLOG(SCN, WARN,
+			"wlanoidSetScanMacOui, prAdapter = NULL");
+		return WLAN_STATUS_FAILURE;
+	}
+	if (!prAdapter->prGlueInfo) {
+		DBGLOG(SCN, WARN,
+			"wlanoidSetScanMacOui, prAdapter->prGlueInfo = NULL");
+		return WLAN_STATUS_FAILURE;
+	}
+
+	ASSERT(pvSetBuffer);
 	ASSERT(u4SetBufferLen == MAC_OUI_LEN);
 
 	prBssInfo = &(prAdapter->rWifiVar.arBssInfo[NETWORK_TYPE_AIS_INDEX]);

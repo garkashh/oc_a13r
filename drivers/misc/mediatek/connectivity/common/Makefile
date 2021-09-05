@@ -22,16 +22,15 @@ endif
 endif
 
 ###############################################################################
-# Necessary Check
 
 ifneq ($(CONFIG_MTK_COMBO),)
 
-ifneq ($(KERNEL_OUT),)
-    ccflags-y += -imacros $(KERNEL_OUT)/include/generated/autoconf.h
-endif
-
 ifeq ($(CONFIG_MTK_COMBO_CHIP),)
     $(error CONFIG_MTK_COMBO_CHIP not defined)
+endif
+
+ifeq ($(TARGET_BUILD_VARIANT),$(filter $(TARGET_BUILD_VARIANT),userdebug user))
+    #ldflags-y += -s
 endif
 
 # Force build fail on modpost warning
@@ -143,8 +142,10 @@ ifeq ($(COMBO_CHIP_SUPPORT), true)
     ccflags-y += -D MTK_WCN_COMBO_CHIP_SUPPORT
 endif
 
-ccflags-y += -D MTK_WCN_SOC_CHIP_SUPPORT
-ccflags-y += -D MTK_WCN_WLAN_GEN4
+ifneq ($(filter "CONSYS_%",$(CONFIG_MTK_COMBO_CHIP)),)
+    ccflags-y += -D MTK_WCN_SOC_CHIP_SUPPORT
+endif
+
 ccflags-y += -I$(src)/common_main/linux/include
 ccflags-y += -I$(src)/common_detect/drv_init/inc
 ccflags-y += -I$(src)/common_detect
@@ -155,6 +156,21 @@ $(MODULE_NAME)-objs += common_detect/wmt_detect.o
 $(MODULE_NAME)-objs += common_detect/sdio_detect.o
 $(MODULE_NAME)-objs += common_detect/mtk_wcn_stub_alps.o
 $(MODULE_NAME)-objs += common_detect/wmt_gpio.o
+
+
+ifneq ($(filter "MT6630",$(CONFIG_MTK_COMBO_CHIP)),)
+	ccflags-y += -D MTK_WCN_WLAN_GEN3
+endif
+
+ifneq ($(filter "MT6632",$(CONFIG_MTK_COMBO_CHIP)),)
+        ccflags-y += -D MTK_WCN_WLAN_GEN4
+endif
+
+ifneq ($(filter "CONSYS_6797" "CONSYS_6759" "CONSYS_6758" "CONSYS_6771" "CONSYS_6775",$(CONFIG_MTK_COMBO_CHIP)),)
+	ccflags-y += -D MTK_WCN_WLAN_GEN3
+else ifneq ($(filter "CONSYS_%",$(CONFIG_MTK_COMBO_CHIP)),)
+	ccflags-y += -D MTK_WCN_WLAN_GEN2
+endif
 
 $(MODULE_NAME)-objs += common_detect/drv_init/fm_drv_init.o
 $(MODULE_NAME)-objs += common_detect/drv_init/conn_drv_init.o
@@ -178,11 +194,17 @@ ccflags-y += -D WMT_UART_RX_MODE_WORK=0 # 1. work thread 0. tasklet
 ccflags-y += -D WMT_SDIO_MODE=1
 ccflags-y += -D WMT_CREATE_NODE_DYNAMIC=1
 
+ifneq ($(TARGET_BUILD_VARIANT),eng)
 ifeq ($(CONFIG_EXTREME_LOW_RAM), y)
 ccflags-y += -DLOG_STP_DEBUG_DISABLE
 endif
+endif
 
-ccflags-y += -D WMT_DBG_SUPPORT=0
+ifneq ($(TARGET_BUILD_VARIANT), user)
+    ccflags-y += -D WMT_DBG_SUPPORT=1
+else
+    ccflags-y += -D WMT_DBG_SUPPORT=0
+endif
 
 ifeq ($(CONFIG_MTK_DEVAPC),y)
     ccflags-y += -D WMT_DEVAPC_DBG_SUPPORT=1
@@ -198,6 +220,10 @@ endif
 # MTK eng/userdebug/user load: Support
 # Customer eng/userdebug load: Support
 # Customer user load: Not support
+
+ifneq ($(TARGET_BUILD_VARIANT),user)
+	ccflags-y += -D CFG_WMT_STEP
+endif
 
 ifeq ($(findstring evb, $(MTK_PROJECT)), evb)
 ccflags-y += -D CFG_WMT_EVB
@@ -256,5 +282,15 @@ endif
 $(MODULE_NAME)-objs += debug_utility/ring.o
 $(MODULE_NAME)-objs += debug_utility/ring_emi.o
 $(MODULE_NAME)-objs += debug_utility/connsys_debug_utility.o
+###############################################################################
+# test
+###############################################################################
+ifeq ($(TARGET_BUILD_VARIANT),eng)
+ccflags-y += -I$(src)/test/include
+endif
+
+ifeq ($(TARGET_BUILD_VARIANT),eng)
+$(MODULE_NAME)-objs += test/wmt_step_test.o
+endif
 
 endif

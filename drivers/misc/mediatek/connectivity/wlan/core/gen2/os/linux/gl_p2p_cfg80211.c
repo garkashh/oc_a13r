@@ -139,7 +139,7 @@ int mtk_p2p_cfg80211_add_key(struct wiphy *wiphy,
 	prGlueInfo = *((P_GLUE_INFO_T *) wiphy_priv(wiphy));
 
 	DBGLOG(RSN, TRACE, "mtk_p2p_cfg80211_add_key\n");
-
+#if DBG
 	if (mac_addr) {
 		DBGLOG(RSN, TRACE,
 		   "keyIdx = %d pairwise = %d mac = " MACSTR "\n", key_index, pairwise,
@@ -150,6 +150,7 @@ int mtk_p2p_cfg80211_add_key(struct wiphy *wiphy,
 	}
 	DBGLOG(RSN, TRACE, "Cipher = %x\n", params->cipher);
 	DBGLOG_MEM8(RSN, TRACE, params->key, params->key_len);
+#endif
 
 	if (params->key_len > 32) {
 		DBGLOG(RSN, WARN, "key_len [%d] is invalid!\n",

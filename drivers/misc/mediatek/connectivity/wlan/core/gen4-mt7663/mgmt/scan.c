@@ -570,7 +570,6 @@ scanSearchBssDescByBssidAndChanNum(IN struct ADAPTER *prAdapter,
 
 	ASSERT(prAdapter);
 	ASSERT(aucBSSID);
-	ASSERT(ucChannelNum);
 
 	prScanInfo = &(prAdapter->rWifiVar.rScanInfo);
 	prBSSDescList = &prScanInfo->rBSSDescList;
@@ -925,11 +924,13 @@ scanSearchExistingBssDescWithSsid(IN struct ADAPTER *prAdapter,
 	case BSS_TYPE_P2P_DEVICE:
 		fgCheckSsid = FALSE;
 		/* fall through */
+		/* FALLTHRU */
 	case BSS_TYPE_INFRASTRUCTURE:
 #if CFG_SUPPORT_ROAMING_SKIP_ONE_AP
 		scanSearchBssDescOfRoamSsid(prAdapter);
 		/* fall through */
 #endif
+		/* FALLTHRU */
 	case BSS_TYPE_BOW_DEVICE:
 		prBssDesc = scanSearchBssDescByBssidAndSsid(prAdapter,
 			aucBSSID, fgCheckSsid, prSsid);
@@ -2454,8 +2455,9 @@ VHT_CAP_INFO_NUMBER_OF_SOUNDING_DIMENSIONS_OFFSET
 		if (prBssDesc->fgIsHTPresent)
 			prBssDesc->ucPhyTypeSet |= PHY_TYPE_BIT_HT;
 
-		/* if not 11n only */
-		if (!(prBssDesc->u2BSSBasicRateSet & RATE_SET_BIT_HT_PHY)) {
+		/* if not 11n only or support OFDM*/
+		if (!(prBssDesc->u2BSSBasicRateSet & RATE_SET_BIT_HT_PHY)
+			|| (prBssDesc->u2BSSBasicRateSet & RATE_SET_OFDM)) {
 			/* Support 11a definitely */
 			prBssDesc->ucPhyTypeSet |= PHY_TYPE_BIT_OFDM;
 
@@ -4095,12 +4097,18 @@ void scanReqLog(struct CMD_SCAN_REQ_V2 *prCmdScanReq)
 void scanReqSsidLog(struct CMD_SCAN_REQ_V2 *prCmdScanReq,
 	const uint16_t logBufLen)
 {
-	char logBuf[logBufLen];
+	char *logBuf;
 	uint32_t idx = 0;
 	int i = 0;
 	u_int8_t ext = FALSE;
 	uint8_t ssidNum = 0;
 	struct PARAM_SSID *ssid = NULL;
+
+	logBuf = kalMemAlloc(logBufLen, PHY_MEM_TYPE);
+	if (!logBuf) {
+		log_dbg(SCN, ERROR, "logBuf alloc fail\n");
+		return;
+	}
 
 	while (1) {
 		if (ext == FALSE) {
@@ -4154,12 +4162,14 @@ void scanReqSsidLog(struct CMD_SCAN_REQ_V2 *prCmdScanReq,
 		else
 			break;
 	}
+
+	kalMemFree(logBuf, PHY_MEM_TYPE, logBufLen);
 }
 
 void scanReqChannelLog(struct CMD_SCAN_REQ_V2 *prCmdScanReq,
 	const uint16_t logBufLen)
 {
-	char logBuf[logBufLen];
+	char *logBuf;
 	uint32_t idx = 0;
 	uint32_t i = 0;
 	u_int8_t ext = FALSE;
@@ -4167,6 +4177,12 @@ void scanReqChannelLog(struct CMD_SCAN_REQ_V2 *prCmdScanReq,
 	struct CHANNEL_INFO *ch = NULL;
 	/* the decimal value could 0 ~ 255 */
 	const uint8_t dataLen = 4;
+
+	logBuf = kalMemAlloc(logBufLen, PHY_MEM_TYPE);
+	if (!logBuf) {
+		log_dbg(SCN, ERROR, "logBuf alloc fail\n");
+		return;
+	}
 
 	while (1) {
 		if (ext == FALSE) {
@@ -4213,6 +4229,8 @@ void scanReqChannelLog(struct CMD_SCAN_REQ_V2 *prCmdScanReq,
 		else
 			break;
 	}
+
+	kalMemFree(logBuf, PHY_MEM_TYPE, logBufLen);
 }
 
 void scanResultLog(struct ADAPTER *prAdapter,
@@ -4279,7 +4297,7 @@ void scanLogCacheAddBSS(struct LINK *prList,
 void scanLogCacheFlushBSS(struct LINK *prList, enum ENUM_SCAN_LOG_PREFIX prefix,
 	const uint16_t logBufLen)
 {
-	char logBuf[logBufLen];
+	char *logBuf;
 	uint32_t idx = 0;
 	struct SCAN_LOG_ELEM_BSS *pBss = NULL;
 #if CFG_SHOW_FULL_MACADDR
@@ -4315,7 +4333,14 @@ void scanLogCacheFlushBSS(struct LINK *prList, enum ENUM_SCAN_LOG_PREFIX prefix,
 		}
 		return;
 	}
-	idx += kalSnprintf(logBuf, sizeof(logBuf), "%u: ", prList->u4NumElem);
+
+	logBuf = kalMemAlloc(logBufLen, PHY_MEM_TYPE);
+	if (!logBuf) {
+		log_dbg(SCN, ERROR, "logBuf alloc fail\n");
+		return;
+	}
+
+	idx += kalSnprintf(logBuf, logBufLen, "%u: ", prList->u4NumElem);
 
 	while (!LINK_IS_EMPTY(prList)) {
 		if (idx+dataLen+1 > logBufLen) {
@@ -4361,6 +4386,8 @@ void scanLogCacheFlushBSS(struct LINK *prList, enum ENUM_SCAN_LOG_PREFIX prefix,
 			logBuf);
 		idx = 0;
 	}
+
+	kalMemFree(logBuf, PHY_MEM_TYPE, logBufLen);
 }
 
 void scanLogCacheFlushAll(struct SCAN_LOG_CACHE *prScanLogCache,

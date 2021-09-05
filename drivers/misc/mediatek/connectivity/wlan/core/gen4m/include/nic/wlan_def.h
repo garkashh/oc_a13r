@@ -980,13 +980,13 @@ enum ENUM_ANTENNA_NUM {
 /* #endif */
 
 /* max number of supported cipher suites */
-#define MAX_NUM_SUPPORTED_CIPHER_SUITES 9
+#define MAX_NUM_SUPPORTED_CIPHER_SUITES 10
 #if CFG_SUPPORT_802_11W
 /* max number of supported AKM suites */
-#define MAX_NUM_SUPPORTED_AKM_SUITES    13
+#define MAX_NUM_SUPPORTED_AKM_SUITES    15
 #else
 /* max number of supported AKM suites */
-#define MAX_NUM_SUPPORTED_AKM_SUITES    9
+#define MAX_NUM_SUPPORTED_AKM_SUITES    13
 #endif
 
 /* Structure of RSN Information */
@@ -1000,6 +1000,8 @@ struct RSN_INFO {
 	uint32_t au4AuthKeyMgtSuite[MAX_NUM_SUPPORTED_AKM_SUITES];
 	uint16_t u2RsnCap;
 	u_int8_t fgRsnCapPresent;
+	uint16_t u2PmkidCount;
+	uint8_t aucPmkid[IW_PMKID_LEN];
 } __KAL_ATTRIB_PACKED__;
 
 /* max number of supported AKM suites */

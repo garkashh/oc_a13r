@@ -489,6 +489,45 @@ struct STA_RECORD *bssCreateStaRecFromBssDesc(IN struct ADAPTER *prAdapter,
 
 }				/* end of bssCreateStaRecFromBssDesc() */
 
+#if CFG_SUPPORT_CFG80211_AUTH
+/*---------------------------------------------------------------------------*/
+/*!
+ * @brief This function will update the STA_RECORD_T in the assoc process+ *
+ * @param[in] prAdapter              Pointer to the Adapter structure.
+ * @param[in] ucBssIndex             BSS Index.
+ * @param[in] prStaRec               Pointer to the STA_RECORD_T
+ *
+ * @retval   Pointer to STA_RECORD_T
+ */
+ /*---------------------------------------------------------------------------*/
+struct STA_RECORD *bssUpdateStaRecFromCfgAssoc(IN struct ADAPTER *prAdapter,
+			IN struct BSS_DESC *prBssDesc,
+			IN struct STA_RECORD *prStaRec)
+{
+	if ((prStaRec == NULL) || (prAdapter == NULL) || prBssDesc == NULL) {
+		/* Expect the prStaRec has been created in the auth process */
+		DBGLOG(BSS, ERROR, "Incorrect input val (%p:%p:%p)\n",
+		prStaRec, prBssDesc, prAdapter);
+		return NULL;
+	}
+
+	/* Only handle security setting now.
+	 * The Seccurity is carried in the mtk_cfg80211_assoc or
+	 * mtk_cfg80211_connect. So that, need to re-check the seting for
+	 * WEP/TKIP with 11n/ac/ax case.
+	 */
+	/* Check the security setting to decide the phy rate */
+	bssDetermineStaRecPhyTypeSet(prAdapter, prBssDesc, prStaRec);
+
+	/* Determine WMM related parameters for STA_REC */
+	mqmProcessScanResult(prAdapter, prBssDesc, prStaRec);
+
+	/* Update default Tx rate */
+	nicTxUpdateStaRecDefaultRate(prStaRec);
+	return prStaRec;
+}
+#endif
+
 /*---------------------------------------------------------------------------*/
 /*!
  * @brief This function will compose the Null Data frame.

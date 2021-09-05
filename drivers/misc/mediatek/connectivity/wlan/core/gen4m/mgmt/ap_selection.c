@@ -97,7 +97,7 @@
  * want to benifit 2.4G->5G case, and keep original logic in
  * other cases.
  */
-#define RSSI_BAD_NEED_ROAM_24G_TO_5G		-10 /* dbm */
+#define RSSI_BAD_NEED_ROAM_24G_TO_5G		-40 /* dbm */
 #define RSSI_BAD_NEED_ROAM			-80 /* dbm */
 
 #define CHNL_DWELL_TIME_DEFAULT  100
@@ -577,6 +577,14 @@ static u_int8_t scanSanityCheckBssDesc(struct ADAPTER *prAdapter,
 
 		if (prBssDesc->prBlack->fgDeauthLastTime) {
 			log_dbg(SCN, WARN, MACSTR " is sending deauth.\n",
+				MAC2STR(prBssDesc->aucBSSID));
+			return FALSE;
+		}
+
+		if (prBssDesc->prBlack->ucCount >= 10)  {
+			log_dbg(SCN, WARN,
+				MACSTR
+				" Skip AP that add toblacklist count >= 10\n",
 				MAC2STR(prBssDesc->aucBSSID));
 			return FALSE;
 		}
@@ -1261,15 +1269,18 @@ uint8_t scanInDecidingRoaming(struct ADAPTER *prAdapter, uint8_t ucBssIndex)
 	struct ROAMING_INFO *roam;
 	enum ENUM_PARAM_CONNECTION_POLICY policy;
 	struct CONNECTION_SETTINGS *setting;
+	struct BSS_DESC *target;
 
 	roam = aisGetRoamingInfo(prAdapter, ucBssIndex);
 	setting = aisGetConnSettings(prAdapter, ucBssIndex);
 	policy = setting->eConnectionPolicy;
+	target = aisGetTargetBssDesc(prAdapter, ucBssIndex);
 
 	return IS_BSS_INDEX_AIS(prAdapter, ucBssIndex) &&
-	       roam->fgIsEnableRoaming &&
-	       roam->eCurrentState == ROAMING_STATE_DECISION &&
-	       policy != CONNECT_BY_BSSID ? TRUE : FALSE;
+		roam->fgIsEnableRoaming &&
+		roam->eCurrentState == ROAMING_STATE_DECISION &&
+		policy != CONNECT_BY_BSSID &&
+		target;
 
 }
 

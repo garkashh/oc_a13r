@@ -149,7 +149,7 @@ struct dataRateMappingTable_t {
 	{65, 130, 195, 260, 390, 520, 585, 650, 780, 867}
 	},
 	{ /* SGI */
-	{72, 144, 217, 289, 433, 578, 650, 722, 867, 963}
+	{72, 144, 217, 289, 433, 578, 650, 722, 867, 867}
 	}
 } },
 {
@@ -488,6 +488,8 @@ struct PARAM_CUSTOM_KEY_CFG_STRUCT g_rDefaulteSetting[] = {
 	*   }
 	*/
 	{"AdapScan", "0x0", WLAN_CFG_DEFAULT},
+	{"DropPacketsIPV4Low", "0x200"},
+	{"DropPacketsIPV6Low", "0x2"},
 #if CFG_SUPPORT_IOT_AP_BLACKLIST
 	/*Fill Iot AP blacklist here*/
 #endif
@@ -710,8 +712,9 @@ void wlanAdapterDestroy(IN struct ADAPTER *prAdapter)
 	if (!prAdapter)
 		return;
 
-	scanLogCacheFlushAll(&(prAdapter->rWifiVar.rScanInfo.rScanLogCache),
-		LOG_SCAN_D2D, SCAN_LOG_MSG_MAX_LEN);
+	scanLogCacheFlushAll(prAdapter,
+		&(prAdapter->rWifiVar.rScanInfo.rScanLogCache),
+		LOG_SCAN_D2D);
 
 	kalMemFree(prAdapter, VIR_MEM_TYPE, sizeof(struct ADAPTER));
 }
@@ -1509,7 +1512,7 @@ u_int8_t wlanISR(IN struct ADAPTER *prAdapter,
  * \return (none)
  */
 /*----------------------------------------------------------------------------*/
-void wlanIST(IN struct ADAPTER *prAdapter)
+void wlanIST(IN struct ADAPTER *prAdapter, bool fgEnInt)
 {
 	uint32_t u4Status = WLAN_STATUS_SUCCESS;
 
@@ -1531,7 +1534,8 @@ void wlanIST(IN struct ADAPTER *prAdapter)
 #endif
 	}
 
-	nicEnableInterrupt(prAdapter);
+	if (fgEnInt)
+		nicEnableInterrupt(prAdapter);
 
 	RECLAIM_POWER_CONTROL_TO_PM(prAdapter, FALSE);
 
@@ -7726,6 +7730,9 @@ void wlanInitFeatureOption(IN struct ADAPTER *prAdapter)
 	prWifiVar->uArpMonitorRxPktNum = (uint32_t) wlanCfgGetUint32(
 		prAdapter, "ArpMonitorRxPktNum", 0);
 #endif /* ARP_MONITER_ENABLE */
+
+	prWifiVar->fgSapCheckPmkidInDriver = (uint32_t) wlanCfgGetUint32(
+		prAdapter, "SapCheckPmkidInDriver", FEATURE_ENABLED);
 }
 
 void wlanCfgSetSwCtrl(IN struct ADAPTER *prAdapter)
@@ -9785,17 +9792,26 @@ void wlanTxProfilingTagPacket(IN struct ADAPTER *prAdapter,
 
 	switch (eTag) {
 	case TX_PROF_TAG_OS_TO_DRV:
-		kalTraceEvent("Xmit id=0x%04x sn=%d",
+		kalTraceEvent("Xmit ipid=0x%04x seq=%d",
+			GLUE_GET_PKT_IP_ID(prPacket),
+			GLUE_GET_PKT_SEQ_NO(prPacket));
+		DBGLOG(TX, TEMP, "Xmit ipid=%d seq=%d\n",
 			GLUE_GET_PKT_IP_ID(prPacket),
 			GLUE_GET_PKT_SEQ_NO(prPacket));
 		break;
 	case TX_PROF_TAG_DRV_ENQUE:
-		kalTraceEvent("Enq id=0x%04x sn=%d",
+		kalTraceEvent("Enq ipid=0x%04x seq=%d",
+			GLUE_GET_PKT_IP_ID(prPacket),
+			GLUE_GET_PKT_SEQ_NO(prPacket));
+		DBGLOG(TX, TEMP, "Enq ipid=%d seq=%d\n",
 			GLUE_GET_PKT_IP_ID(prPacket),
 			GLUE_GET_PKT_SEQ_NO(prPacket));
 		break;
 	case TX_PROF_TAG_DRV_FREE:
-		kalTraceEvent("Cmpl id=0x%04x sn=%d",
+		kalTraceEvent("Cmpl ipid=0x%04x seq=%d",
+			GLUE_GET_PKT_IP_ID(prPacket),
+			GLUE_GET_PKT_SEQ_NO(prPacket));
+		DBGLOG(TX, TEMP, "Cmpl ipid=%d seq=%d\n",
 			GLUE_GET_PKT_IP_ID(prPacket),
 			GLUE_GET_PKT_SEQ_NO(prPacket));
 		break;
@@ -12294,7 +12310,7 @@ void
 wlanResoreEmCfgSetting(IN struct ADAPTER *
 	prAdapter)
 {
-	uint8_t i;
+	uint32_t i;
 
 	for (i = 0; i < WLAN_CFG_ENTRY_NUM_MAX; i++) {
 
@@ -12319,7 +12335,7 @@ void
 wlanBackupEmCfgSetting(IN struct ADAPTER *
 	prAdapter)
 {
-	uint8_t i;
+	uint32_t i;
 	struct WLAN_CFG_ENTRY *prWlanCfgEntry = NULL;
 
 	kalMemZero(&g_rEmCfgBk, sizeof(g_rEmCfgBk));
@@ -12358,7 +12374,7 @@ void
 wlanCleanAllEmCfgSetting(IN struct ADAPTER *
 	prAdapter)
 {
-	uint8_t i;
+	uint32_t i;
 	struct WLAN_CFG_ENTRY *prWlanCfgEntry = NULL;
 
 	for (i = 0; i < WLAN_CFG_ENTRY_NUM_MAX; i++) {
@@ -12388,3 +12404,57 @@ u_int8_t wlanWfdEnabled(struct ADAPTER *prAdapter)
 	return FALSE;
 }
 
+int wlanChipConfig(struct ADAPTER *prAdapter,
+	char *pcCommand, int i4TotalLen)
+{
+	uint32_t rStatus = WLAN_STATUS_SUCCESS;
+	int32_t i4BytesWritten = 0;
+	uint32_t u4BufLen = 0;
+	uint32_t u2MsgSize = 0;
+	uint32_t u4CmdLen = 0;
+	struct PARAM_CUSTOM_CHIP_CONFIG_STRUCT rChipConfigInfo = {0};
+
+	if (prAdapter == NULL) {
+		DBGLOG(REQ, ERROR, "prAdapter null");
+		return -1;
+	}
+	DBGLOG(REQ, LOUD, "command is %s\n", pcCommand);
+
+	u4CmdLen = kalStrnLen(pcCommand, i4TotalLen);
+
+	rChipConfigInfo.ucType = CHIP_CONFIG_TYPE_ASCII;
+	rChipConfigInfo.u2MsgSize = u4CmdLen;
+	kalStrnCpy(rChipConfigInfo.aucCmd, pcCommand,
+		   CHIP_CONFIG_RESP_SIZE - 1);
+	rChipConfigInfo.aucCmd[CHIP_CONFIG_RESP_SIZE - 1] = '\0';
+	rStatus = kalIoctl(prAdapter->prGlueInfo, wlanoidQueryChipConfig,
+		&rChipConfigInfo, sizeof(rChipConfigInfo),
+		TRUE, TRUE, TRUE, &u4BufLen);
+
+	if (rStatus != WLAN_STATUS_SUCCESS) {
+		DBGLOG(REQ, ERROR, "%s: kalIoctl ret=%d\n", __func__,
+		       rStatus);
+		return -1;
+	}
+	rChipConfigInfo.aucCmd[CHIP_CONFIG_RESP_SIZE - 1] = '\0';
+
+	/* Check respType */
+	u2MsgSize = rChipConfigInfo.u2MsgSize;
+	DBGLOG(REQ, INFO, "%s: RespTyep  %u\n", __func__,
+	       rChipConfigInfo.ucRespType);
+	DBGLOG(REQ, INFO, "%s: u2MsgSize %u\n", __func__,
+	       rChipConfigInfo.u2MsgSize);
+
+	if (rChipConfigInfo.ucRespType != CHIP_CONFIG_TYPE_ASCII) {
+		DBGLOG(REQ, WARN, "only return as ASCII");
+		return -1;
+	}
+	if (u2MsgSize > sizeof(rChipConfigInfo.aucCmd)) {
+		DBGLOG(REQ, INFO, "%s: u2MsgSize error ret=%u\n",
+		       __func__, rChipConfigInfo.u2MsgSize);
+		return -1;
+	}
+	i4BytesWritten = snprintf(pcCommand, i4TotalLen, "%s",
+		     rChipConfigInfo.aucCmd);
+	return i4BytesWritten;
+}

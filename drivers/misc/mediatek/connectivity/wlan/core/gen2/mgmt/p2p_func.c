@@ -489,12 +489,14 @@ WLAN_STATUS p2pFuncProcessBeacon(IN P_ADAPTER_T prAdapter,
 
 		/* Beacon template from upper layer (without TIM IE) */
 
+#if DBG
 		if (prBcnUpdateInfo->pucBcnHdr != NULL)
 			ASSERT(prBcnUpdateInfo->pucBcnHdr == (PUINT_8)prBcnFrame);
 
 		if (prBcnUpdateInfo->pucBcnBody != NULL)
 			ASSERT(prBcnUpdateInfo->pucBcnBody ==
 			       (prBcnUpdateInfo->pucBcnHdr + prBcnUpdateInfo->u4BcnHdrLen));
+#endif
 
 		if (!pucNewBcnBody) {
 			/* Cache old Beacon body in case of only new Beacon head update. */

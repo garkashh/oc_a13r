@@ -1722,14 +1722,14 @@ int mtk_p2p_cfg80211_start_ap(struct wiphy *wiphy,
 	} while (FALSE);
 
 	while (prAdapter && !prAdapter->fgIsStartApDone) {
-		if (ucLoopCnt > 10) {
+		if (ucLoopCnt > 100) {
 			DBGLOG(P2P, ERROR,
 			"wait StartApDone timeout\n");
 			break;
 		}
 
 		ucLoopCnt++;
-		kalMsleep(10);
+		kalMsleep(1);
 	}
 
 	return i4Rslt;
@@ -2394,6 +2394,153 @@ int mtk_p2p_cfg80211_stop_ap(struct wiphy *wiphy, struct net_device *dev)
 }				/* mtk_p2p_cfg80211_stop_ap */
 
 /* TODO: */
+#if CFG_SUPPORT_CFG80211_AUTH
+int mtk_p2p_cfg80211_auth(struct wiphy *wiphy,
+	struct net_device *ndev, struct cfg80211_auth_request *req)
+{
+	struct GLUE_INFO *prGlueInfo = NULL;
+	struct P2P_CONNECTION_SETTINGS *prP2pConnSettings = NULL;
+	struct cfg80211_connect_params connect;
+	struct cfg80211_connect_params *sme = &connect;
+	const struct cfg80211_bss_ies *ies;
+	const uint8_t *ssidie = NULL;
+	uint8_t ssid_len = 0;
+	uint8_t ucRoleIdx = 0;
+
+	DBGLOG(REQ, INFO,
+		"auth to  BSS [" MACSTR "]\n",
+		MAC2STR((uint8_t *)req->bss->bssid));
+	DBGLOG(REQ, INFO, "auth_type:%d\n", req->auth_type);
+
+	prGlueInfo = (struct GLUE_INFO *) wiphy_priv(wiphy);
+	ASSERT(prGlueInfo);
+
+	memset(&connect, 0, sizeof(connect));
+	sme->bssid = req->bss->bssid;
+	if (mtk_Netdev_To_RoleIdx(prGlueInfo, ndev,
+			&ucRoleIdx) < 0)
+		return -EINVAL;
+
+	DBGLOG(REQ, INFO, "ucRoleIndex = %d\n", ucRoleIdx);
+
+	prP2pConnSettings = prGlueInfo->prAdapter->
+			rWifiVar.prP2PConnSettings[ucRoleIdx];
+
+	ies = rcu_access_pointer(req->bss->ies);
+	if (!ies)
+		return false;
+
+	ssidie = cfg80211_find_ie(WLAN_EID_SSID, ies->data, ies->len);
+	if (!ssidie)
+		return false;
+
+	ssid_len = ssidie[1];
+	sme->ssid = ssidie + 2;
+	sme->ssid_len = ssid_len;
+	COPY_SSID(prP2pConnSettings->aucSSID, prP2pConnSettings->ucSSIDLen,
+		sme->ssid, sme->ssid_len);
+	prP2pConnSettings->fgIsSendAssoc = FALSE;
+
+	DBGLOG(REQ, INFO, "ssid_len %d ssid %s\n", sme->ssid_len, sme->ssid);
+
+	return mtk_p2p_cfg80211_connect(wiphy, ndev, sme);
+}
+
+int mtk_p2p_cfg80211_assoc(struct wiphy *wiphy,
+	       struct net_device *ndev, struct cfg80211_assoc_request *req)
+{
+	struct GLUE_INFO *prGlueInfo = NULL;
+	uint8_t ucRoleIdx = 0;
+	struct P2P_CONNECTION_SETTINGS *prP2pConnSettings = NULL;
+	struct STA_RECORD *prStaRec = NULL;
+	struct P2P_ROLE_FSM_INFO *prP2pRoleFsmInfo =
+				(struct P2P_ROLE_FSM_INFO *) NULL;
+	struct P2P_CONNECTION_REQ_INFO *prConnReqInfo =
+				(struct P2P_CONNECTION_REQ_INFO *) NULL;
+
+	prGlueInfo = (struct GLUE_INFO *) wiphy_priv(wiphy);
+	ASSERT(prGlueInfo);
+
+	if (mtk_Netdev_To_RoleIdx(prGlueInfo, ndev,
+			&ucRoleIdx) < 0)
+		return -EINVAL;
+
+	prP2pConnSettings = prGlueInfo->prAdapter->
+			rWifiVar.prP2PConnSettings[ucRoleIdx];
+
+	/* [todo]temp use for indicate rx assoc resp, may need to be modified */
+	/* The BSS from cfg80211_ops.assoc must give back to
+	* cfg80211_send_rx_assoc() or to cfg80211_assoc_timeout().
+	* To ensure proper refcounting,
+	* new association requests while already associating
+	* must be rejected.
+	*/
+	if (prP2pConnSettings->bss)
+		return -ENOENT;
+	prP2pConnSettings->bss = req->bss;
+
+	DBGLOG(REQ, INFO, "ucRoleIndex = %d\n", ucRoleIdx);
+
+	/*[TODO]may to check if assoc parameters change as cfg80211_auth*/
+	prP2pConnSettings->fgIsSendAssoc = TRUE;
+	/* skip join initial flow when it has been completed*/
+	prP2pRoleFsmInfo = P2P_ROLE_INDEX_2_ROLE_FSM_INFO(
+							prGlueInfo->prAdapter,
+							ucRoleIdx);
+	prStaRec = prP2pRoleFsmInfo->rJoinInfo.prTargetStaRec;
+	prConnReqInfo = &(prP2pRoleFsmInfo->rConnReqInfo);
+	kalMemCopy(prConnReqInfo->aucIEBuf,
+					req->ie, req->ie_len);
+	prConnReqInfo->u4BufLength = req->ie_len;
+
+		/* set crypto */
+	kalP2PSetCipher(prGlueInfo, IW_AUTH_CIPHER_NONE,
+					ucRoleIdx);
+	DBGLOG(REQ, INFO,
+					"n_ciphers_pairwise %d, ciphers_pairwise[0] %#x\n",
+					req->crypto.n_ciphers_pairwise,
+					req->crypto.ciphers_pairwise[0]);
+
+	if (req->crypto.n_ciphers_pairwise) {
+		switch (req->crypto.ciphers_pairwise[0]) {
+		case WLAN_CIPHER_SUITE_WEP40:
+		case WLAN_CIPHER_SUITE_WEP104:
+			kalP2PSetCipher(prGlueInfo,
+						IW_AUTH_CIPHER_WEP40,
+						ucRoleIdx);
+			break;
+		case WLAN_CIPHER_SUITE_TKIP:
+			kalP2PSetCipher(prGlueInfo,
+						IW_AUTH_CIPHER_TKIP,
+						ucRoleIdx);
+			break;
+		case WLAN_CIPHER_SUITE_CCMP:
+		case WLAN_CIPHER_SUITE_AES_CMAC:
+			kalP2PSetCipher(prGlueInfo,
+						IW_AUTH_CIPHER_CCMP,
+						ucRoleIdx);
+			break;
+		default:
+			DBGLOG(REQ, WARN,
+					"invalid cipher pairwise (%d)\n",
+					req->crypto.ciphers_pairwise[0]);
+					/* do cfg80211_put_bss before return */
+			return -EINVAL;
+		}
+	}
+	/* end	*/
+
+	if (prStaRec)
+		saaSendAuthAssoc(prGlueInfo->prAdapter, prStaRec);
+	else
+		DBGLOG(REQ, WARN,
+					"can't send auth since can't find StaRec\n");
+
+	return 0;
+}
+#endif
+
+
 int mtk_p2p_cfg80211_deauth(struct wiphy *wiphy,
 		struct net_device *dev,
 		struct cfg80211_deauth_request *req)
@@ -3304,6 +3451,7 @@ mtk_p2p_cfg80211_change_iface(IN struct wiphy *wiphy,
 			DBGLOG(P2P, TRACE, "NL80211_IFTYPE_P2P_CLIENT.\n");
 			prSwitchModeMsg->eIftype = IFTYPE_P2P_CLIENT;
 			/* This case need to fall through */
+			/* FALLTHRU */
 		case NL80211_IFTYPE_STATION:
 			if (type == NL80211_IFTYPE_STATION) {
 				DBGLOG(P2P, TRACE, "NL80211_IFTYPE_STATION.\n");
@@ -3317,6 +3465,7 @@ mtk_p2p_cfg80211_change_iface(IN struct wiphy *wiphy,
 			kalP2PSetRole(prGlueInfo, 2, ucRoleIdx);
 			prSwitchModeMsg->eIftype = IFTYPE_AP;
 			/* This case need to fall through */
+			/* FALLTHRU */
 		case NL80211_IFTYPE_P2P_GO:
 			if (type == NL80211_IFTYPE_P2P_GO) {
 				DBGLOG(P2P, TRACE,

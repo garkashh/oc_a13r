@@ -397,6 +397,12 @@ uint32_t wlanAdapterStart(IN struct ADAPTER *prAdapter,
 	for (i = 0; i < TX_PORT_NUM; i++)
 		QUEUE_INITIALIZE(&prAdapter->rTxPQueue[i]);
 #endif
+#if CFG_SUPPORT_CFG80211_AUTH
+#if CFG_SUPPORT_CFG80211_QUEUE
+	QUEUE_INITIALIZE(&prAdapter->rCfg80211Queue);
+#endif
+#endif
+
 	QUEUE_INITIALIZE(&prAdapter->rRxQueue);
 	QUEUE_INITIALIZE(&prAdapter->rTxDataDoneQueue);
 #endif
@@ -7331,6 +7337,7 @@ textresume:
 					x++;
 					continue;
 				}
+				/* FALLTHRU */
 			case '\n':
 				/* \ <lf> -> line continuation */
 				x++;
@@ -9568,7 +9575,7 @@ wlanGetSupportNss(IN struct ADAPTER *prAdapter,
 #if CFG_SISO_SW_DEVELOP
 	struct BSS_INFO *prBssInfo;
 	enum ENUM_BAND eBand = BAND_NULL;
-
+111
 	if (ucBssIndex > prAdapter->ucHwBssIdNum) {
 		DBGLOG(SW4, ERROR, "Invalid BssInfo index[%u], skip dump!\n",
 		       ucBssIndex);

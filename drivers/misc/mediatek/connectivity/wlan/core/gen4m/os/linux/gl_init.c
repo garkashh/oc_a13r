@@ -196,6 +196,11 @@ unsigned long long gConEmiSize;
 EXPORT_SYMBOL(gConEmiSize);
 #endif
 
+#if CFG_MTK_ANDROID_EMI
+phys_addr_t gConEmiPhyBaseFinal;
+unsigned long long gConEmiSizeFinal;
+#endif
+
 int CFG80211_Suspend(struct wiphy *wiphy,
 		     struct cfg80211_wowlan *wow)
 {
@@ -386,6 +391,10 @@ const uint32_t mtk_cipher_suites[] = {
 
 	/* keep last -- depends on hw flags! */
 	WLAN_CIPHER_SUITE_AES_CMAC,
+	WLAN_CIPHER_SUITE_GCMP_256,
+	WLAN_CIPHER_SUITE_BIP_GMAC_256, /* TODO, HW not support,
+					* SW should handle integrity check
+					*/
 	WLAN_CIPHER_SUITE_NO_GROUP_ADDR
 };
 
@@ -1797,10 +1806,14 @@ static int wlanStop(struct net_device *prDev)
 
 	prGlueInfo = *((struct GLUE_INFO **) netdev_priv(prDev));
 
-	/* CFG80211 down */
+	/* CFG80211 down, report to kernel directly and run normal
+	*  scan abort procedure
+	*/
 	GLUE_ACQUIRE_SPIN_LOCK(prGlueInfo, SPIN_LOCK_NET_DEV);
 	if (prGlueInfo->prScanRequest) {
 		kalCfg80211ScanDone(prGlueInfo->prScanRequest, TRUE);
+		aisFsmStateAbort_SCAN(prGlueInfo->prAdapter,
+					wlanGetBssIdx(prDev));
 		prGlueInfo->prScanRequest = NULL;
 	}
 	GLUE_RELEASE_SPIN_LOCK(prGlueInfo, SPIN_LOCK_NET_DEV);
@@ -3689,8 +3702,8 @@ uint32_t wlanServiceInit(struct GLUE_INFO *prGlueInfo)
 			prServiceTest->test_winfo->chip_id);
 
 #if (CFG_MTK_ANDROID_EMI == 1)
-	prServiceTest->test_winfo->emi_phy_base = gConEmiPhyBase;
-	prServiceTest->test_winfo->emi_phy_size = gConEmiSize;
+	prServiceTest->test_winfo->emi_phy_base = gConEmiPhyBaseFinal;
+	prServiceTest->test_winfo->emi_phy_size = gConEmiSizeFinal;
 #else
 	DBGLOG(RFTEST, WARN, "Platform doesn't support EMI address\n");
 #endif
@@ -4406,6 +4419,8 @@ int32_t wlanOnWhenProbeSuccess(struct GLUE_INFO *prGlueInfo,
 #endif
 
 	wlanOnP2pRegistration(prGlueInfo, prAdapter, gprWdev[0]);
+	if (prAdapter->u4HostStatusEmiOffset)
+		kalSetSuspendFlagToEMI(prAdapter, FALSE);
 	return 0;
 }
 
@@ -4966,8 +4981,18 @@ static int32_t wlanProbe(void *pvData, void *pvDriverData)
 			kalMetRemoveProcfs();
 		case PROC_INIT_FAIL:
 			wlanNetUnregister(prWdev);
+			/* Unregister notifier callback */
+			wlanUnregisterInetAddrNotifier();
 		case NET_REGISTER_FAIL:
 			set_bit(GLUE_FLAG_HALT_BIT, &prGlueInfo->ulFlag);
+#if CFG_SUPPORT_MULTITHREAD
+			wake_up_interruptible(&prGlueInfo->waitq_hif);
+			wait_for_completion_interruptible(
+				&prGlueInfo->rHifHaltComp);
+			wake_up_interruptible(&prGlueInfo->waitq_rx);
+			wait_for_completion_interruptible(
+				&prGlueInfo->rRxHaltComp);
+#endif
 			/* wake up main thread */
 			wake_up_interruptible(&prGlueInfo->waitq);
 			/* wait main thread stops */
@@ -5307,7 +5332,14 @@ static int initWlan(void)
 	gConEmiPhyBase = (phys_addr_t)ptr;
 #endif
 
+	gConEmiPhyBaseFinal = gConEmiPhyBase;
+	gConEmiSizeFinal = gConEmiSize;
 
+#if (CFG_SUPPORT_CONNINFRA == 1)
+	conninfra_get_phy_addr(
+		(unsigned int *)&gConEmiPhyBaseFinal,
+		(unsigned int *)&gConEmiSizeFinal);
+#endif
 
 	DBGLOG(INIT, INFO, "initWlan\n");
 
@@ -5360,7 +5392,7 @@ static int initWlan(void)
 			      wlanRemove) == WLAN_STATUS_SUCCESS) ? 0 : -EIO);
 #ifdef CONFIG_MTK_EMI
 	/* Set WIFI EMI protection to consys permitted on system boot up */
-	kalSetEmiMpuProtection(gConEmiPhyBase, true);
+	kalSetEmiMpuProtection(gConEmiPhyBaseFinal, true);
 #endif
 #if CFG_MTK_ANDROID_WMT && (CFG_SUPPORT_CONNINFRA == 0)
 	mtk_wcn_wmt_mpu_lock_release();

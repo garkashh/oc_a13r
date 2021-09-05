@@ -526,6 +526,16 @@ int mtk_p2p_cfg80211_change_bss(struct wiphy *wiphy,
 		struct net_device *dev,
 		struct bss_parameters *params);
 
+#if CFG_SUPPORT_CFG80211_AUTH
+int mtk_p2p_cfg80211_auth(struct wiphy *wiphy,
+		struct net_device *ndev,
+		struct cfg80211_auth_request *req);
+
+int mtk_p2p_cfg80211_assoc(struct wiphy *wiphy,
+	       struct net_device *ndev,
+	       struct cfg80211_assoc_request *req);
+#endif
+
 int mtk_p2p_cfg80211_deauth(struct wiphy *wiphy,
 		struct net_device *dev,
 		struct cfg80211_deauth_request *req);

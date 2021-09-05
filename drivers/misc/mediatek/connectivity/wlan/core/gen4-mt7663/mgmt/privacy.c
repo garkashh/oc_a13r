@@ -231,6 +231,9 @@ void secInit(IN struct ADAPTER *prAdapter, IN uint8_t ucBssIndex)
 			.dot11RSNAConfigAuthenticationSuite
 			= RSN_AKM_SUITE_OWE;
 #endif
+		prAdapter->rMib.dot11RSNAConfigAuthenticationSuitesTable[15]
+			.dot11RSNAConfigAuthenticationSuite
+			= RSN_AKM_SUITE_DPP;
 
 	for (i = 0; i < MAX_NUM_SUPPORTED_AKM_SUITES; i++) {
 		prAdapter->rMib.dot11RSNAConfigAuthenticationSuitesTable

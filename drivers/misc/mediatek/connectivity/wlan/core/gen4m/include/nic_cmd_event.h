@@ -1015,6 +1015,7 @@ enum NIC_CAPABILITY_V2_TAG {
 #if (CFG_SUPPORT_P2PGO_ACS == 1)
 	TAG_CAP_P2P = 0x17,
 #endif
+	TAG_CAP_HOST_STATUS_EMI_OFFSET = 0x19,
 	TAG_CAP_TOTAL
 };
 
@@ -1132,6 +1133,10 @@ struct CAP_ANTSWP {
 	uint8_t  ucReserved[1];
 };
 #endif
+
+struct NIC_HOST_STATUS_EMI_OFFSET {
+	uint32_t u4EmiOffset;  /* TRUE for COEX FDD mode */
+};
 
 #define EFUSE_SECTION_TABLE_SIZE        (10)   /* It should not be changed. */
 
@@ -2467,8 +2472,12 @@ struct CMD_SCHED_SCAN_REQ {
 	uint8_t ucScnFuncMask;
 	struct CHANNEL_INFO aucChannel[64];
 	uint16_t au2MspList[10];
-	uint8_t aucPadding_3[64];
-
+	uint8_t ucBssIndex;
+	uint32_t u4DelayStartInSec;
+	uint32_t u4FastScanIteration;
+	uint32_t u4FastScanPeriod;
+	uint32_t u4SlowScanPeriod;
+	uint8_t aucPadding_3[47];
 	/* keep last */
 	uint8_t aucIE[0];             /* MUST be the last for IE content */
 };
@@ -3157,6 +3166,9 @@ uint32_t nicCfgChipCapAntSwpCap(IN struct ADAPTER *prAdapter,
 		IN uint8_t *pucEventBuf);
 
 #endif
+
+uint32_t nicCmdEventHostStatusEmiOffset(IN struct ADAPTER *prAdapter,
+					IN uint8_t *pucEventBuf);
 
 void nicExtEventICapIQData(IN struct ADAPTER *prAdapter,
 			   IN uint8_t *pucEventBuf);

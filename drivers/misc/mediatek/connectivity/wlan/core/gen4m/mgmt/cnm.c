@@ -149,6 +149,9 @@ struct DBDC_INFO_T {
 	/* Used to queue enter/leave A+G event */
 	bool fgPostpondEnterAG;
 	bool fgPostpondLeaveAG;
+
+	/* For debug */
+	OS_SYSTIME rPeivilegeLockTime;
 };
 
 enum ENUM_DBDC_FSM_EVENT_T {
@@ -424,6 +427,11 @@ cnmDbdcFsmExitFunc_WAIT_HW_ENABLE(
 );
 
 static void
+cnmDbdcFsmExitFunc_WAIT_HW_DISABLE(
+	IN struct ADAPTER *prAdapter
+);
+
+static void
 cnmDbdcOpModeChangeDoneCallback(
 	IN struct ADAPTER *prAdapter,
 	IN uint8_t ucBssIndex,
@@ -499,7 +507,7 @@ static struct DBDC_FSM_T arDdbcFsmActionTable[] = {
 	{
 		cnmDbdcFsmEntryFunc_WAIT_HW_DISABLE,
 		cnmDbdcFsmEventHandler_WAIT_HW_DISABLE,
-		NULL
+		cnmDbdcFsmExitFunc_WAIT_HW_DISABLE
 	},
 
 	/* ENUM_DBDC_FSM_STATE_DISABLE_GUARD */
@@ -676,6 +684,9 @@ void cnmChMngrRequestPrivilege(struct ADAPTER
 	struct MSG_CH_REQ *prMsgChReq;
 	struct CMD_CH_PRIVILEGE *prCmdBody;
 	uint32_t rStatus;
+#if CFG_SUPPORT_DBDC
+	OS_SYSTIME rChReqQueueTime;
+#endif
 
 	ASSERT(prAdapter);
 	ASSERT(prMsgHdr);
@@ -689,6 +700,19 @@ void cnmChMngrRequestPrivilege(struct ADAPTER
 		log_dbg(CNM, INFO,
 		       "[DBDC] ChReq: queued BSS %u Token %u REQ\n",
 		       prMsgChReq->ucBssIndex, prMsgChReq->ucTokenID);
+
+		/* Trigger EE dump if PeivilegeLock was held for more than 5s */
+		rChReqQueueTime = kalGetTimeTick();
+		if ((g_rDbdcInfo.rPeivilegeLockTime != 0) &&
+			(rChReqQueueTime > g_rDbdcInfo.rPeivilegeLockTime) &&
+			((rChReqQueueTime -
+				g_rDbdcInfo.rPeivilegeLockTime) > 5000)) {
+			log_dbg(CNM, WARN,
+				"[DBDC] ChReq: long peivilege lock at %d, %d\n",
+				g_rDbdcInfo.rPeivilegeLockTime,
+				rChReqQueueTime);
+			GL_RESET_TRIGGER(prAdapter, RST_FLAG_CHIP_RESET);
+		}
 		return;
 	}
 #endif
@@ -2063,6 +2087,7 @@ void cnmInitDbdcSetting(IN struct ADAPTER *prAdapter)
 	g_rDbdcInfo.fgHasSentCmd = FALSE;
 	g_rDbdcInfo.fgPostpondEnterAG = FALSE;
 	g_rDbdcInfo.fgPostpondLeaveAG = FALSE;
+	g_rDbdcInfo.rPeivilegeLockTime = 0;
 
 	/* Parameter decision */
 	switch (prAdapter->rWifiVar.eDbdcMode) {
@@ -2326,10 +2351,10 @@ void cnmDbdcOpModeChangeDoneCallback(
  *
  * @param (none)
  *
- * @return (none)
+ * @return (uint32_t)
  */
 /*----------------------------------------------------------------------------*/
-void cnmUpdateDbdcSetting(IN struct ADAPTER *prAdapter,
+uint32_t cnmUpdateDbdcSetting(IN struct ADAPTER *prAdapter,
 			  IN u_int8_t fgDbdcEn)
 {
 	struct CMD_DBDC_SETTING rDbdcSetting;
@@ -2408,6 +2433,12 @@ void cnmUpdateDbdcSetting(IN struct ADAPTER *prAdapter,
 
 				      NULL, /* pvSetQueryBuffer */
 				      0 /* u4SetQueryBufferLen */);
+
+	if (rStatus != WLAN_STATUS_PENDING)
+		DBGLOG(CNM, WARN,
+			"cnmUpdateDbdcSetting set cmd fail %d\n", rStatus);
+
+	return rStatus;
 }
 
 /*----------------------------------------------------------------------------*/
@@ -2462,6 +2493,7 @@ static void
 cnmDBDCFsmActionReqPeivilegeLock(void)
 {
 	g_rDbdcInfo.fgReqPrivelegeLock = TRUE;
+	g_rDbdcInfo.rPeivilegeLockTime = kalGetTimeTick();
 	log_dbg(CNM, INFO, "[DBDC] ReqPrivelege Lock!!\n");
 }
 
@@ -2472,6 +2504,7 @@ cnmDBDCFsmActionReqPeivilegeUnLock(IN struct ADAPTER *prAdapter)
 	struct MSG_HDR *prMsgHdr;
 
 	g_rDbdcInfo.fgReqPrivelegeLock = FALSE;
+	g_rDbdcInfo.rPeivilegeLockTime = 0;
 	log_dbg(CNM, INFO, "[DBDC] ReqPrivelege Unlock!!\n");
 
 	while (!LINK_IS_EMPTY(&g_rDbdcInfo.rPendingMsgList)) {
@@ -2498,8 +2531,20 @@ static void
 cnmDbdcFsmEntryFunc_DISABLE_IDLE(IN struct ADAPTER *prAdapter)
 {
 	uint8_t ucWmmIndex;
+	uint8_t ucBssIndex;
+	struct CNM_OPMODE_BSS_CONTROL_T *prBssOpCtrl;
 
-	cnmDBDCFsmActionReqPeivilegeUnLock(prAdapter);
+	if (cnmDBDCIsReqPeivilegeLock()) {
+		cnmDBDCFsmActionReqPeivilegeUnLock(prAdapter);
+	}
+
+	for (ucBssIndex = 0; ucBssIndex < prAdapter->ucHwBssIdNum;
+		ucBssIndex++) {
+		prBssOpCtrl = &(g_arBssOpControl[ucBssIndex]);
+		prBssOpCtrl->rRunning.fgIsRunning = false;
+		prBssOpCtrl->arReqPool[CNM_OPMODE_REQ_DBDC].fgEnable = false;
+	}
+
 	for (ucWmmIndex = 0; ucWmmIndex < prAdapter->ucWmmSetNum;
 		ucWmmIndex++) {
 		cnmWmmQuotaSetMaxQuota(
@@ -2521,10 +2566,18 @@ cnmDbdcFsmEntryFunc_WAIT_PROTOCOL_ENABLE(IN struct ADAPTER *prAdapter)
 static void
 cnmDbdcFsmEntryFunc_WAIT_HW_ENABLE(IN struct ADAPTER *prAdapter)
 {
+	uint32_t rStatus;
+
 	if (!cnmDBDCIsReqPeivilegeLock())
 		cnmDBDCFsmActionReqPeivilegeLock();
 
-	cnmUpdateDbdcSetting(prAdapter, TRUE);
+	rStatus = cnmUpdateDbdcSetting(prAdapter, TRUE);
+
+	if (rStatus != WLAN_STATUS_PENDING) {
+		cnmDBDCFsmActionReqPeivilegeUnLock(prAdapter);
+		DBDC_FSM_EVENT_HANDLER(prAdapter,
+			DBDC_FSM_EVENT_ERR);
+	}
 }
 
 static void
@@ -2564,12 +2617,20 @@ cnmDbdcFsmEntryFunc_ENABLE_IDLE(
 static void
 cnmDbdcFsmEntryFunc_WAIT_HW_DISABLE(IN struct ADAPTER *prAdapter)
 {
+	uint32_t rStatus;
+
 #if (CFG_SUPPORT_DBDC_NO_BLOCKING_OPMODE)
 	if (!cnmDBDCIsReqPeivilegeLock())
 		cnmDBDCFsmActionReqPeivilegeLock();
 #endif
 
-	cnmUpdateDbdcSetting(prAdapter, FALSE);
+	rStatus = cnmUpdateDbdcSetting(prAdapter, FALSE);
+
+	if (rStatus != WLAN_STATUS_PENDING) {
+		cnmDBDCFsmActionReqPeivilegeUnLock(prAdapter);
+		DBDC_FSM_EVENT_HANDLER(prAdapter,
+			DBDC_FSM_EVENT_ERR);
+	}
 }
 
 static void
@@ -2651,6 +2712,11 @@ cnmDbdcFsmEventHandler_WAIT_PROTOCOL_ENABLE(
 {
 	switch (eEvent) {
 	case DBDC_FSM_EVENT_BSS_DISCONNECT_LEAVE_AG:
+		/* Stop Enabling DBDC */
+		g_rDbdcInfo.eDbdcFsmNextState =
+			ENUM_DBDC_FSM_STATE_DISABLE_IDLE;
+		break;
+
 	case DBDC_FSM_EVENT_BSS_CONNECTING_ENTER_AG:
 		/* IGNORE */
 		break;
@@ -2721,7 +2787,13 @@ cnmDbdcFsmEventHandler_WAIT_HW_ENABLE(
 
 	case DBDC_FSM_EVENT_DBDC_HW_SWITCH_DONE:
 		g_rDbdcInfo.eDbdcFsmNextState =
-		ENUM_DBDC_FSM_STATE_ENABLE_GUARD;
+			ENUM_DBDC_FSM_STATE_ENABLE_GUARD;
+		break;
+
+	case DBDC_FSM_EVENT_ERR:
+		g_rDbdcInfo.eDbdcFsmNextState =
+			ENUM_DBDC_FSM_STATE_DISABLE_IDLE;
+		g_rDbdcInfo.fgPostpondLeaveAG = FALSE;
 		break;
 
 	default:
@@ -2874,7 +2946,13 @@ cnmDbdcFsmEventHandler_WAIT_HW_DISABLE(
 
 	case DBDC_FSM_EVENT_DBDC_HW_SWITCH_DONE:
 		g_rDbdcInfo.eDbdcFsmNextState =
-		ENUM_DBDC_FSM_STATE_DISABLE_GUARD;
+			ENUM_DBDC_FSM_STATE_DISABLE_GUARD;
+		break;
+
+	case DBDC_FSM_EVENT_ERR:
+		g_rDbdcInfo.eDbdcFsmNextState =
+			ENUM_DBDC_FSM_STATE_ENABLE_IDLE;
+		g_rDbdcInfo.fgPostpondEnterAG = FALSE;
 		break;
 
 	default:
@@ -3024,6 +3102,10 @@ cnmDbdcFsmEventHandler_WAIT_PROTOCOL_DISABLE(
 
 	switch (eEvent) {
 	case DBDC_FSM_EVENT_BSS_DISCONNECT_LEAVE_AG:
+		/* Return to idle state to prevent getting stuck */
+		g_rDbdcInfo.eDbdcFsmNextState =
+			ENUM_DBDC_FSM_STATE_DISABLE_IDLE;
+		break;
 	case DBDC_FSM_EVENT_BSS_CONNECTING_ENTER_AG:
 		/* IGNORE */
 		break;
@@ -3090,6 +3172,14 @@ cnmDbdcFsmExitFunc_WAIT_HW_ENABLE(
 {
 	cnmDBDCFsmActionReqPeivilegeUnLock(prAdapter);
 }
+
+static void
+cnmDbdcFsmExitFunc_WAIT_HW_DISABLE(
+	IN struct ADAPTER *prAdapter)
+{
+	cnmDBDCFsmActionReqPeivilegeUnLock(prAdapter);
+}
+
 
 /*----------------------------------------------------------------------------*/
 /*!

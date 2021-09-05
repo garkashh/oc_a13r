@@ -1169,11 +1169,6 @@ int mtk_cfg80211_auth(struct wiphy *wiphy, struct net_device *ndev,
 #if CFG_SUPPORT_802_11R
 	uint32_t u4InfoBufLen = 0;
 #endif
-	struct cfg80211_connect_params connect;
-	struct cfg80211_connect_params *sme = &connect;
-	const struct cfg80211_bss_ies *ies;
-	const uint8_t *ssidie = NULL;
-	uint8_t ssid_len = 0;
 
 	prGlueInfo = (struct GLUE_INFO *) wiphy_priv(wiphy);
 	ASSERT(prGlueInfo);
@@ -1193,30 +1188,6 @@ int mtk_cfg80211_auth(struct wiphy *wiphy, struct net_device *ndev,
 	DBGLOG(REQ, INFO, "auth_type:%d\n", req->auth_type);
 
 	prConnSettings = &prGlueInfo->prAdapter->rWifiVar.rConnSettings;
-	if (mtk_IsP2PNetDevice(prGlueInfo, ndev) > 0) {
-		memset(&connect, 0, sizeof(connect));
-		sme->bssid = req->bss->bssid;
-		if (mtk_Netdev_To_RoleIdx(prGlueInfo, ndev,
-				&prConnSettings->ucRoleIdx) < 0)
-			return -EINVAL;
-
-		prConnSettings->fgIsP2pConn	= TRUE;
-		ies = rcu_access_pointer(req->bss->ies);
-		if (!ies)
-			return false;
-
-		ssidie = cfg80211_find_ie(WLAN_EID_SSID, ies->data, ies->len);
-		if (!ssidie)
-			return false;
-
-		ssid_len = ssidie[1];
-		sme->ssid = ssidie + 2;
-		sme->ssid_len = ssid_len;
-		COPY_SSID(prConnSettings->aucSSID, prConnSettings->ucSSIDLen,
-			sme->ssid, sme->ssid_len);
-		prConnSettings->fgIsSendAssoc = FALSE;
-		return mtk_p2p_cfg80211_connect(wiphy, ndev, sme);
-	}
 
 	/* <1>Set OP mode */
 	if (prGlueInfo->prAdapter->rWifiVar.rConnSettings.eOPMode >
@@ -1296,23 +1267,23 @@ int mtk_cfg80211_auth(struct wiphy *wiphy, struct net_device *ndev,
 	kalMemZero(prDetRplyInfo, sizeof(struct GL_DETECT_REPLAY_INFO));
 #endif
 
-	/* Reset WPA info */
-	prGlueInfo->rWpaInfo.u4AuthAlg = 0;
-
 	switch (req->auth_type) {
 	case NL80211_AUTHTYPE_OPEN_SYSTEM:
 		if (!(prGlueInfo->rWpaInfo.u4AuthAlg & AUTH_TYPE_OPEN_SYSTEM))
 			fgNewAuthParam = TRUE;
+		prGlueInfo->rWpaInfo.u4AuthAlg = 0;
 		prGlueInfo->rWpaInfo.u4AuthAlg |= AUTH_TYPE_OPEN_SYSTEM;
 		break;
 	case NL80211_AUTHTYPE_SHARED_KEY:
 		if (!(prGlueInfo->rWpaInfo.u4AuthAlg & AUTH_TYPE_SHARED_KEY))
 			fgNewAuthParam = TRUE;
+		prGlueInfo->rWpaInfo.u4AuthAlg = 0;
 		prGlueInfo->rWpaInfo.u4AuthAlg |= AUTH_TYPE_SHARED_KEY;
 		break;
 	case NL80211_AUTHTYPE_SAE:
 		if (!(prGlueInfo->rWpaInfo.u4AuthAlg & AUTH_TYPE_SAE))
 			fgNewAuthParam = TRUE;
+		prGlueInfo->rWpaInfo.u4AuthAlg = 0;
 		prGlueInfo->rWpaInfo.u4AuthAlg |= AUTH_TYPE_SAE;
 		break;
 #if CFG_SUPPORT_802_11R
@@ -1320,6 +1291,7 @@ int mtk_cfg80211_auth(struct wiphy *wiphy, struct net_device *ndev,
 		if (!(prGlueInfo->rWpaInfo.u4AuthAlg
 			& AUTH_TYPE_FAST_BSS_TRANSITION))
 			fgNewAuthParam = TRUE;
+		prGlueInfo->rWpaInfo.u4AuthAlg = 0;
 		prGlueInfo->rWpaInfo.u4AuthAlg |= AUTH_TYPE_FAST_BSS_TRANSITION;
 		break;
 #endif
@@ -1327,11 +1299,14 @@ int mtk_cfg80211_auth(struct wiphy *wiphy, struct net_device *ndev,
 		DBGLOG(REQ, WARN,
 			"Auth type: %ld not support, use default OPEN system\n",
 			req->auth_type);
+		prGlueInfo->rWpaInfo.u4AuthAlg = 0;
 		prGlueInfo->rWpaInfo.u4AuthAlg |= AUTH_TYPE_OPEN_SYSTEM;
 		break;
 	}
 	DBGLOG(REQ, INFO, "Auth Algorithm : %ld\n",
 		prGlueInfo->rWpaInfo.u4AuthAlg);
+	DBGLOG(REQ, INFO, "fgNewAuthParam %d\n",
+			fgNewAuthParam);
 
 	if (req->key_len != 0) {
 		/* NL80211 only set the Tx wep key while connect,
@@ -1370,10 +1345,13 @@ int mtk_cfg80211_auth(struct wiphy *wiphy, struct net_device *ndev,
 	}
 	kalMemZero(&rNewSsid, sizeof(struct PARAM_CONNECT));
 
-	if (rNewSsid.pucBssid != (uint8_t *)req->bss->bssid) {
+	rNewSsid.pucBssid = (uint8_t *)req->bss->bssid;
+	if (!EQUAL_MAC_ADDR(rNewSsid.pucBssid, prConnSettings->aucBSSID)) {
+		DBGLOG(REQ, INFO, "previous connect bssid is " MACSTR "\n",
+			MAC2STR((uint8_t *)prConnSettings->aucBSSID));
 		fgNewAuthParam = TRUE;
-		rNewSsid.pucBssid = (uint8_t *)req->bss->bssid;
 	}
+
 #if CFG_SUPPORT_802_11R
 	if (req->auth_type == NL80211_AUTHTYPE_FT) {
 		rNewSsid.pucSsid = prGlueInfo->prAdapter
@@ -1401,7 +1379,8 @@ int mtk_cfg80211_auth(struct wiphy *wiphy, struct net_device *ndev,
 		 */
 		if (fgNewAuthParam)
 			DBGLOG(REQ, WARN, "auth param update\n");
-			rStatus = kalIoctl(prGlueInfo, wlanoidSetConnect,
+
+		rStatus = kalIoctl(prGlueInfo, wlanoidSetConnect,
 				(void *)&rNewSsid, sizeof(struct PARAM_CONNECT),
 				FALSE, FALSE, TRUE, &u4BufLen);
 
@@ -1696,6 +1675,12 @@ int mtk_cfg80211_connect(struct wiphy *wiphy,
 			case WLAN_AKM_SUITE_OWE:
 				eAuthMode = AUTH_MODE_WPA2_PSK;
 				u4AkmSuite = RSN_AKM_SUITE_OWE;
+				break;
+#endif
+#if CFG_SUPPORT_DPP
+			case WLAN_AKM_SUITE_DPP:
+				eAuthMode = AUTH_MODE_WPA2_PSK;
+				u4AkmSuite = RSN_AKM_SUITE_DPP;
 				break;
 #endif
 			default:
@@ -4054,15 +4039,12 @@ int mtk_cfg80211_assoc(struct wiphy *wiphy,
 	struct CONNECTION_SETTINGS *prConnSettings = NULL;
 	uint8_t *prDesiredIE = NULL;
 	uint8_t *pucIEStart = NULL;
+	u_int8_t fgCarryWPSIE = FALSE;
 	struct RSN_INFO rRsnInfo;
 	struct STA_RECORD *prStaRec = NULL;
 #if CFG_SUPPORT_802_11R
 	uint32_t u4InfoBufLen = 0;
 #endif
-struct P2P_ROLE_FSM_INFO *prP2pRoleFsmInfo =
-		(struct P2P_ROLE_FSM_INFO *) NULL;
-struct P2P_CONNECTION_REQ_INFO *prConnReqInfo =
-		(struct P2P_CONNECTION_REQ_INFO *) NULL;
 #endif
 
 #if CFG_SUPPORT_CFG80211_AUTH
@@ -4091,9 +4073,6 @@ struct P2P_CONNECTION_REQ_INFO *prConnReqInfo =
 #endif
 		DBGLOG(REQ, INFO, "mtk_cfg80211_assoc, media state:%d\n",
 					prGlueInfo->eParamMediaStateIndicated);
-#if CFG_SUPPORT_CFG80211_AUTH
-		if (!prConnSettings->fgIsP2pConn)
-#endif
 		{
 			kalMemZero(arBssid, MAC_ADDR_LEN);
 			if (prGlueInfo->eParamMediaStateIndicated ==
@@ -4367,6 +4346,12 @@ struct P2P_CONNECTION_REQ_INFO *prConnReqInfo =
 					u4AkmSuite = RSN_AKM_SUITE_OWE;
 				break;
 #endif
+#if CFG_SUPPORT_DPP
+				case WLAN_AKM_SUITE_DPP:
+					eAuthMode = AUTH_MODE_WPA2_PSK;
+					u4AkmSuite = RSN_AKM_SUITE_DPP;
+				break;
+#endif
 				default:
 					DBGLOG(REQ, WARN,
 						"invalid Akm Suite (%08x)\n",
@@ -4414,7 +4399,33 @@ struct P2P_CONNECTION_REQ_INFO *prConnReqInfo =
 	if (req->ie && req->ie_len > 0) {
 #if CFG_SUPPORT_CFG80211_AUTH
 		pucIEStart = (uint8_t *)req->ie;
+#if CFG_SUPPORT_WAPI
+		rStatus = kalIoctl(prGlueInfo,
+				   wlanoidSetWapiAssocInfo,
+				   pucIEStart, req->ie_len,
+				   FALSE, FALSE, FALSE, &u4BufLen);
+
+		if (rStatus != WLAN_STATUS_SUCCESS)
+			DBGLOG(SEC, WARN,
+			"[wapi] set wapi assoc info error:%x\n", rStatus);
 #endif
+#if CFG_SUPPORT_WPS2
+		if (wextSrchDesiredWPSIE(pucIEStart, req->ie_len, 0xDD,
+					 (uint8_t **) &prDesiredIE)) {
+			prGlueInfo->fgWpsActive = TRUE;
+			fgCarryWPSIE = TRUE;
+
+			rStatus = kalIoctl(prGlueInfo, wlanoidSetWSCAssocInfo,
+					   prDesiredIE, IE_SIZE(prDesiredIE),
+					   FALSE, FALSE, FALSE, &u4BufLen);
+			if (rStatus != WLAN_STATUS_SUCCESS)
+				DBGLOG(SEC, WARN,
+					"[WSC] set WSC assoc info error:%x\n",
+					rStatus);
+		}
+#endif
+#endif
+
 #if CFG_SUPPORT_PASSPOINT
 		if (wextSrchDesiredHS20IE((uint8_t *) req->ie, req->ie_len,
 					  (uint8_t **) &prDesiredIE)) {
@@ -4493,6 +4504,13 @@ struct P2P_CONNECTION_REQ_INFO *prConnReqInfo =
 			}
 		}
 
+		/* Find non-wfa vendor specific ies set from upper layer */
+		if (cfg80211_get_non_wfa_vendor_ie(prGlueInfo, pucIEStart,
+				req->ie_len) > 0) {
+			DBGLOG(RSN, INFO, "Found non-wfa vendor ie (len=%u)\n",
+				prGlueInfo->non_wfa_vendor_ie_len);
+		}
+
 #if CFG_SUPPORT_OWE
 		/* Gen OWE IE */
 		if (wextSrchDesiredWPAIE(pucIEStart, req->ie_len, 0xff,
@@ -4528,6 +4546,14 @@ struct P2P_CONNECTION_REQ_INFO *prConnReqInfo =
 #endif
 	}
 
+#if CFG_SUPPORT_CFG80211_AUTH
+	/* clear WSC Assoc IE buffer in case WPS IE is not detected */
+	if (fgCarryWPSIE == FALSE) {
+		kalMemZero(&prGlueInfo->aucWSCAssocInfoIE, 200);
+		prGlueInfo->u2WSCAssocInfoIELen = 0;
+	}
+#endif
+
 	/* Fill WPA info - mfp setting */
 		/* Must put after paring RSNE from upper layer
 		* for prGlueInfo->rWpaInfo.ucRSNMfpCap assignment
@@ -4559,8 +4585,7 @@ struct P2P_CONNECTION_REQ_INFO *prConnReqInfo =
 	 * parameters change as cfg80211_auth
 	 */
 	prConnSettings->fgIsSendAssoc = TRUE;
-	if ((!prConnSettings->fgIsConnInitialized) &&
-		(prConnSettings->fgIsP2pConn != TRUE)) {
+	if ((!prConnSettings->fgIsConnInitialized)) {
 		rStatus = kalIoctl(prGlueInfo, wlanoidSetBssid,
 			(void *) req->bss->bssid, MAC_ADDR_LEN,
 			FALSE, FALSE, TRUE, &u4BufLen);
@@ -4570,59 +4595,9 @@ struct P2P_CONNECTION_REQ_INFO *prConnReqInfo =
 			return -EINVAL;
 		}
 	} else { /* skip join initial flow when it has been completed*/
-		if ((mtk_IsP2PNetDevice(prGlueInfo, ndev) > 0) &&
-				prConnSettings->fgIsP2pConn) {
-			prP2pRoleFsmInfo = P2P_ROLE_INDEX_2_ROLE_FSM_INFO(
-						prGlueInfo->prAdapter,
-						prConnSettings->ucRoleIdx);
-			prStaRec = prP2pRoleFsmInfo->rJoinInfo.prTargetStaRec;
-			prConnReqInfo = &(prP2pRoleFsmInfo->rConnReqInfo);
-			kalMemCopy(prConnReqInfo->aucIEBuf,
-						req->ie, req->ie_len);
-			prConnReqInfo->u4BufLength = req->ie_len;
-
-			/* set crypto */
-			kalP2PSetCipher(prGlueInfo, IW_AUTH_CIPHER_NONE,
-						prConnSettings->ucRoleIdx);
-			DBGLOG(REQ, INFO,
-					"n_ciphers_pairwise %d, ciphers_pairwise[0] %#x\n",
-					req->crypto.n_ciphers_pairwise,
-					req->crypto.ciphers_pairwise[0]);
-
-			if (req->crypto.n_ciphers_pairwise) {
-				switch (req->crypto.ciphers_pairwise[0]) {
-				case WLAN_CIPHER_SUITE_WEP40:
-				case WLAN_CIPHER_SUITE_WEP104:
-					kalP2PSetCipher(prGlueInfo,
-						IW_AUTH_CIPHER_WEP40,
-						prConnSettings->ucRoleIdx);
-					break;
-				case WLAN_CIPHER_SUITE_TKIP:
-					kalP2PSetCipher(prGlueInfo,
-						IW_AUTH_CIPHER_TKIP,
-						prConnSettings->ucRoleIdx);
-					break;
-				case WLAN_CIPHER_SUITE_CCMP:
-				case WLAN_CIPHER_SUITE_AES_CMAC:
-					kalP2PSetCipher(prGlueInfo,
-						IW_AUTH_CIPHER_CCMP,
-						prConnSettings->ucRoleIdx);
-					break;
-				default:
-					DBGLOG(REQ, WARN,
-						"invalid cipher pairwise (%d)\n",
-						req->crypto
-						.ciphers_pairwise[0]);
-					/* do cfg80211_put_bss before return */
-					return -EINVAL;
-				}
-			}
-			/* end  */
-		} else {
-			prStaRec = cnmGetStaRecByAddress(prGlueInfo->prAdapter,
+		prStaRec = cnmGetStaRecByAddress(prGlueInfo->prAdapter,
 				prGlueInfo->prAdapter->prAisBssInfo->ucBssIndex,
 				req->bss->bssid);
-		}
 
 		if (prStaRec)
 			saaSendAuthAssoc(prGlueInfo->prAdapter,
@@ -7069,6 +7044,27 @@ int mtk_cfg_resume(struct wiphy *wiphy)
 	return mtk_cfg80211_resume(wiphy);
 }
 
+#if CFG_SUPPORT_CFG80211_AUTH
+int mtk_cfg_auth(struct wiphy *wiphy, struct net_device *ndev,
+		    struct cfg80211_auth_request *req)
+{
+	struct GLUE_INFO *prGlueInfo = NULL;
+
+	prGlueInfo = (struct GLUE_INFO *) wiphy_priv(wiphy);
+
+	if ((!prGlueInfo) || (prGlueInfo->u4ReadyFlag == 0)) {
+		DBGLOG(REQ, WARN, "driver is not ready\n");
+		return -EFAULT;
+	}
+
+	if (mtk_IsP2PNetDevice(prGlueInfo, ndev) > 0)
+		return mtk_p2p_cfg80211_auth(wiphy, ndev, req);
+
+	/* STA Mode */
+	return mtk_cfg80211_auth(wiphy, ndev, req);
+}
+#endif
+
 int mtk_cfg_assoc(struct wiphy *wiphy,
 		  struct net_device *ndev,
 		  struct cfg80211_assoc_request *req)
@@ -7083,12 +7079,16 @@ int mtk_cfg_assoc(struct wiphy *wiphy,
 		return -EFAULT;
 	}
 
-#if !CFG_SUPPORT_CFG80211_AUTH
+#if CFG_SUPPORT_CFG80211_AUTH
+	if (mtk_IsP2PNetDevice(prGlueInfo, ndev) > 0)
+		return mtk_p2p_cfg80211_assoc(wiphy, ndev, req);
+#else
 	if (mtk_IsP2PNetDevice(prGlueInfo, ndev) > 0) {
 		DBGLOG(REQ, WARN, "P2P/AP don't support this function\n");
 		return -EFAULT;
 	}
 #endif
+
 	/* STA Mode */
 	return mtk_cfg80211_assoc(wiphy, ndev, req);
 }

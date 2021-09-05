@@ -8978,9 +8978,11 @@ wlanoidSetAcpiDevicePowerState(IN struct ADAPTER *
 		break;
 	case ParamDeviceStateD1:
 		DBGLOG(REQ, INFO, "Set Power State: D1\n");
+		/* FALLTHRU */
 	/* no break here */
 	case ParamDeviceStateD2:
 		DBGLOG(REQ, INFO, "Set Power State: D2\n");
+		/* FALLTHRU */
 	/* no break here */
 	case ParamDeviceStateD3:
 		DBGLOG(REQ, INFO, "Set Power State: D3\n");

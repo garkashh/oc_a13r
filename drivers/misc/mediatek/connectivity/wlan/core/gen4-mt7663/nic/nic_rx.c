@@ -1831,7 +1831,7 @@ void nicRxProcessDataPacket(IN struct ADAPTER *prAdapter,
 		    RXS_DW2_RX_FRAG_VALUE)
 			prSwRfb->fgFragFrame = TRUE;
 
-	} else {
+		} else {
 		fgDrop = TRUE;
 		if (!HAL_RX_STATUS_IS_ICV_ERROR(prRxStatus)
 		    && HAL_RX_STATUS_IS_TKIP_MIC_ERROR(prRxStatus)) {
@@ -1878,6 +1878,34 @@ void nicRxProcessDataPacket(IN struct ADAPTER *prAdapter,
 			fgDrop = TRUE;	/* Drop after send de-auth  */
 		}
 #endif
+	}
+
+	/* Drop plain text during security connection */
+	if (HAL_RX_STATUS_IS_CIPHER_MISMATCH(prRxStatus)
+		&& (prSwRfb->fgDataFrame == TRUE)) {
+		uint16_t *pu2EtherType;
+
+		DBGLOG(RSN, INFO,
+			"HAL_RX_STATUS_IS_CIPHER_MISMATCH\n");
+
+		pu2EtherType = (uint16_t *)
+				((uint8_t *)prSwRfb->pvHeader +
+				2 * MAC_ADDR_LEN);
+		if (prSwRfb->u2HeaderLen >= ETH_HLEN
+			&& (*pu2EtherType == NTOHS(ETH_P_1X)
+#if CFG_SUPPORT_WAPI
+			|| (*pu2EtherType == NTOHS(ETH_WPI_1X))
+#endif
+		)) {
+			fgDrop = FALSE;
+			DBGLOG(RSN, INFO,
+				"Don't drop eapol or wpi packet\n");
+		} else {
+			fgDrop = TRUE;
+			DBGLOG(RSN, INFO,
+				"Drop plain text during security connection\n");
+		}
+
 	}
 
 #if CFG_TCP_IP_CHKSUM_OFFLOAD || CFG_TCP_IP_CHKSUM_OFFLOAD_NDIS_60

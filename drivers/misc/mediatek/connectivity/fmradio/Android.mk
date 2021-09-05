@@ -13,10 +13,6 @@ else
 LOCAL_REQUIRED_MODULES := wmt_drv.ko
 endif
 
-ifeq ($(strip $(CONFIG_FEATURE_J19COMMON)),true)
-LOCAL_CFLAGS += -DTARGET_PRODUCT_J19COMMON
-endif
-
 ifeq ($(TARGET_BUILD_VARIANT),user)
 FM_OPTS := CONFIG_FM_USER_LOAD=1
 else

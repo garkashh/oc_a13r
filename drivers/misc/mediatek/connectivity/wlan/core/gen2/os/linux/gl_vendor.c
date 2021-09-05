@@ -1543,7 +1543,7 @@ int mtk_cfg80211_vendor_get_version(struct wiphy *wiphy, struct wireless_dev *wd
 		prGlueInfo = (P_GLUE_INFO_T) wiphy_priv(wiphy);
 		ASSERT(prGlueInfo);
 		prVerInfo = &(prGlueInfo->prAdapter->rVerInfo);
-		sprintf(verInfoBuf, "%x.%x.%x", (prVerInfo->u2FwOwnVersion >> 8),
+		kalSprintf(verInfoBuf, "%x.%x.%x", (prVerInfo->u2FwOwnVersion >> 8),
 			(prVerInfo->u2FwOwnVersion & 0xff), (prVerInfo->u2FwOwnVersionExtend));
 		u4CopySize = strlen(verInfoBuf);
 	}

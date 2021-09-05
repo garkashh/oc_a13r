@@ -119,16 +119,19 @@ else
     ccflags-y += -DCFG_SUPPORT_AEE=0
 endif
 
+CONFIG_MTK_WPA3_SUPPORT=y
 ifeq ($(CONFIG_MTK_WPA3_SUPPORT), y)
 	ccflags-y += -DCFG_SUPPORT_CFG80211_AUTH=1
 	ccflags-y += -DCFG_SUPPORT_SAE=1
 	ccflags-y += -DCFG_SUPPORT_OWE=1
 	ccflags-y += -DCFG_SUPPORT_SUITB=1
+	ccflags-y += -DCFG_SUPPORT_CFG80211_QUEUE=1
 else
 	ccflags-y += -DCFG_SUPPORT_CFG80211_AUTH=0
 	ccflags-y += -DCFG_SUPPORT_SAE=0
 	ccflags-y += -DCFG_SUPPORT_OWE=0
 	ccflags-y += -DCFG_SUPPORT_SUITB=0
+	ccflags-y += -DCFG_SUPPORT_CFG80211_QUEUE=0
 endif
 
 # Disable ASSERT() for user load, enable for others
@@ -172,6 +175,10 @@ endif
 # For Thermal module API
 # 1: enable, 0: disable
 ccflags-y += -DCFG_THERMAL_API_SUPPORT=1
+# For WAC module API
+# 1: enable, 0: disable
+ccflags-y += -DCFG_SUPPORT_WAC=0
+
 ifeq ($(CFG_ENABLE_1RPD_MMPS_CTRL), y)
     ccflags-y += -DCFG_ENABLE_1RPD_MMPS_CTRL=1
 endif
@@ -226,6 +233,7 @@ else
 endif
 
 # RX NAPI
+CFG_RX_NAPI_SUPPORT=1
 ifneq ($(CFG_RX_NAPI_SUPPORT),)
 	ccflags-y += -DCFG_RX_NAPI_SUPPORT=$(CFG_RX_NAPI_SUPPORT)
 endif

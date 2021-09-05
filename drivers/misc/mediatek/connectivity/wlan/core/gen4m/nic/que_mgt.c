@@ -172,9 +172,10 @@ do { \
 #if CFG_RX_REORDERING_ENABLED
 #define qmHandleRxPackets_AOSP_1 \
 do { \
+	DBGLOG(RX, TEMP, "qmHandleRxPackets_AOSP_1 %p\n", prCurrSwRfb); \
 	/* ToDo[6630]: duplicate removal */ \
 	if (!fgIsBMC && nicRxIsDuplicateFrame(prCurrSwRfb) == TRUE) { \
-		DBGLOG(QM, TRACE, "Duplicated packet is detected\n"); \
+		DBGLOG(RX, TEMP, "Duplicated packet is detected\n"); \
 		RX_INC_CNT(&prAdapter->rRxCtrl, RX_DUPICATE_DROP_COUNT); \
 		LINK_QUALITY_COUNT_DUP(prAdapter, prCurrSwRfb); \
 		prCurrSwRfb->eDst = RX_PKT_DESTINATION_NULL; \
@@ -185,7 +186,7 @@ do { \
 			prCurrSwRfb, prReturnedQue); \
 		if (prCurrSwRfb) { \
 			prRxStatus = prCurrSwRfb->prRxStatus; \
-			DBGLOG(QM, TRACE, \
+			DBGLOG(RX, TEMP, \
 				"defragmentation RxStatus=%p\n", prRxStatus); \
 		} \
 	} \
@@ -587,8 +588,7 @@ void qmActivateStaRec(IN struct ADAPTER *prAdapter,
 #endif
 
 #if CFG_MTK_MCIF_WIFI_SUPPORT
-	if (prAdapter->fgMddpActivated)
-		mddpNotifyDrvTxd(prAdapter, prStaRec, TRUE);
+	mddpNotifyDrvTxd(prAdapter, prStaRec, TRUE);
 #endif
 
 	DBGLOG(QM, INFO, "QM: +STA[%d]\n", prStaRec->ucIndex);
@@ -647,8 +647,7 @@ void qmDeactivateStaRec(IN struct ADAPTER *prAdapter,
 	qmUpdateStaRec(prAdapter, prStaRec);
 
 #if CFG_MTK_MCIF_WIFI_SUPPORT
-	if (prAdapter->fgMddpActivated)
-		mddpNotifyDrvTxd(prAdapter, prStaRec, FALSE);
+	mddpNotifyDrvTxd(prAdapter, prStaRec, FALSE);
 #endif
 
 	DBGLOG(QM, INFO, "QM: -STA[%u]\n", prStaRec->ucIndex);
@@ -3058,7 +3057,7 @@ struct SW_RFB *qmHandleRxPackets(IN struct ADAPTER *prAdapter,
 				}
 
 				if (prCurrSwRfb->prStaRec == NULL) {
-					DBGLOG(QM, TRACE,
+					DBGLOG(RX, TEMP,
 						"Mark NULL the Packet for no STA_REC, wlanIdx=%d\n",
 						prCurrSwRfb->ucWlanIdx);
 					RX_INC_CNT(&prAdapter->rRxCtrl,
@@ -3083,7 +3082,7 @@ struct SW_RFB *qmHandleRxPackets(IN struct ADAPTER *prAdapter,
 				ucBssIndex);
 
 			if (!IS_BSS_ACTIVE(prBssInfo)) {
-				log_dbg(QM, TRACE, "Mark NULL the Packet for inactive Bss %u\n",
+				log_dbg(RX, TEMP, "Mark NULL the Packet for inactive Bss %u\n",
 					ucBssIndex);
 				RX_INC_CNT(&prAdapter->rRxCtrl,
 					RX_INACTIVE_BSS_DROP_COUNT);
@@ -3278,6 +3277,7 @@ struct SW_RFB *qmHandleRxPackets(IN struct ADAPTER *prAdapter,
 			prCurrSwRfb->eDst = RX_PKT_DESTINATION_NULL;
 			QUEUE_INSERT_TAIL(prReturnedQue,
 				(struct QUE_ENTRY *) prCurrSwRfb);
+			DBGLOG(RX, TEMP, "BMC replay\n");
 			continue;
 		}
 #endif
@@ -3332,7 +3332,7 @@ struct SW_RFB *qmHandleRxPackets(IN struct ADAPTER *prAdapter,
 				} else
 					qmHandleRxPackets_AOSP_1;
 			} else {
-				DBGLOG(QM, TRACE,
+				DBGLOG(RX, TEMP,
 					"Mark NULL the Packet for class error\n");
 				RX_INC_CNT(&prAdapter->rRxCtrl,
 					RX_CLASS_ERR_DROP_COUNT);
@@ -3359,7 +3359,7 @@ struct SW_RFB *qmHandleRxPackets(IN struct ADAPTER *prAdapter,
 					RX_BAR_DROP_COUNT);
 				break;
 			default:
-				DBGLOG(QM, TRACE,
+				DBGLOG(RX, TEMP,
 					"Mark NULL the Packet for non-interesting type\n");
 				RX_INC_CNT(&prAdapter->rRxCtrl,
 					RX_NO_INTEREST_DROP_COUNT);
@@ -3434,7 +3434,7 @@ void qmProcessPktWithReordering(IN struct ADAPTER *prAdapter,
 	prReorderQueParm = ((
 		prStaRec->aprRxReorderParamRefTbl)[prSwRfb->ucTid]);
 	if (!prReorderQueParm || !(prReorderQueParm->fgIsValid)) {
-		DBGLOG(QM, TRACE,
+		DBGLOG(RX, TEMP,
 			"Reordering but no BA agreement for STA[%d] TID[%d]\n",
 			prStaRec->ucIndex, prSwRfb->ucTid);
 		QUEUE_INSERT_TAIL(prReturnedQue,
@@ -3456,7 +3456,6 @@ void qmProcessPktWithReordering(IN struct ADAPTER *prAdapter,
 
 	/* prMpduSwRfb = prReorderQueParm->prMpduSwRfb; */
 	u4SeqNo = (uint32_t)prSwRfb->u2SSN;
-	DBGLOG(RX, LOUD, "qmProcessPktWithReordering: SEQ:%d\n", u4SeqNo);
 
 	switch (u8AmsduSubframeIdx) {
 	case RX_PAYLOAD_FORMAT_FIRST_SUB_AMSDU:
@@ -3597,7 +3596,7 @@ void qmProcessBarFrame(IN struct ADAPTER *prAdapter,
 		/* RX reorder for one MSDU in AMSDU issue */
 		prReorderQueParm->u8LastAmsduSubIdx = RX_PAYLOAD_FORMAT_MSDU;
 #endif
-		DBGLOG(QM, TRACE,
+		DBGLOG(RX, TEMP,
 			"QM:(BAR)[%d](%u){%hu,%hu}\n",
 			prSwRfb->ucTid, u4SSN,
 			prReorderQueParm->u2WinStart,
@@ -3605,7 +3604,7 @@ void qmProcessBarFrame(IN struct ADAPTER *prAdapter,
 		qmPopOutDueToFallAhead(prAdapter, prReorderQueParm,
 			prReturnedQue);
 	} else {
-		DBGLOG(QM, TRACE, "QM:(BAR)(%d)(%u){%u,%u}\n",
+		DBGLOG(RX, TEMP, "QM:(BAR)(%d)(%u){%u,%u}\n",
 			prSwRfb->ucTid, u4SSN, u4WinStart, u4WinEnd);
 	}
 	RX_DIRECT_REORDER_UNLOCK(prAdapter, 0);
@@ -3626,7 +3625,8 @@ void qmInsertReorderPkt(IN struct ADAPTER *prAdapter,
 	u4WinEnd = (uint32_t) (prReorderQueParm->u2WinEnd);
 
 	/* Debug */
-	DBGLOG_LIMITED(QM, LOUD, "QM:(R)[%u](%u){%u,%u}\n", prSwRfb->ucTid,
+	DBGLOG(RX, TEMP, "QM:ipid=%d(R)[%u](%u){%u,%u}\n",
+		GLUE_GET_PKT_IP_ID(prSwRfb->pvPacket), prSwRfb->ucTid,
 		u4SeqNo, u4WinStart, u4WinEnd);
 
 	if (prReorderQueParm->fgNoDrop) {
@@ -3654,6 +3654,8 @@ void qmInsertReorderPkt(IN struct ADAPTER *prAdapter,
 	    || ((u4WinEnd < u4WinStart) && (u4WinStart <= u4SeqNo))
 	    /* 0 - sn - end - start - 4095 */
 	    || ((u4SeqNo <= u4WinEnd) && (u4WinEnd < u4WinStart))) {
+		DBGLOG(RX, TEMP, "RxPkt=%p seq=%d fall within\n",
+			prSwRfb, u4SeqNo);
 
 		qmInsertFallWithinReorderPkt(prAdapter, prSwRfb,
 					     prReorderQueParm, prReturnedQue);
@@ -3663,7 +3665,7 @@ void qmInsertReorderPkt(IN struct ADAPTER *prAdapter,
 			/* Let the first received packet
 			 * pass the reorder check
 			 */
-			DBGLOG(QM, LOUD, "QM:(A)[%d](%u){%u,%u}\n",
+			DBGLOG(RX, TEMP, "QM:(A)[%d](%u){%u,%u}\n",
 				prSwRfb->ucTid, u4SeqNo, u4WinStart, u4WinEnd);
 
 			prReorderQueParm->u2WinStart = (uint16_t) u4SeqNo;
@@ -3699,6 +3701,9 @@ void qmInsertReorderPkt(IN struct ADAPTER *prAdapter,
 
 		uint16_t u2Delta, u2BeforeWinEnd;
 		uint32_t u4BeforeCount, u4MissingCount;
+
+		DBGLOG(RX, TEMP, "RxPkt=%p seq=%d fall ahead\n",
+			prSwRfb, u4SeqNo);
 
 #if QM_RX_WIN_SSN_AUTO_ADVANCING
 		if (prReorderQueParm->fgIsWaitingForPktWithSsn)
@@ -3747,7 +3752,7 @@ void qmInsertReorderPkt(IN struct ADAPTER *prAdapter,
 			DBGLOG_LIMITED(QM, INFO,
 				"QM: SSN jump over 1024:[%d]\n", u2Delta);
 		}
-		DBGLOG_LIMITED(QM, TRACE, "QM: Miss Count:[%d]\n",
+		DBGLOG(RX, TEMP, "QM: Miss Count:[%lu]\n",
 			RX_GET_CNT(&prAdapter->rRxCtrl,
 			RX_DATA_REORDER_MISS_COUNT));
 	}
@@ -3756,31 +3761,37 @@ void qmInsertReorderPkt(IN struct ADAPTER *prAdapter,
 #if CFG_SUPPORT_LOWLATENCY_MODE || CFG_SUPPORT_OSHARE
 		if (qmIsNoDropPacket(prAdapter, prSwRfb) ||
 			prReorderQueParm->fgNoDrop) {
-			DBGLOG(QM, LOUD, "QM: No drop packet:[%d](%d){%d,%d}\n",
-				prSwRfb->ucTid, u4SeqNo, u4WinStart, u4WinEnd);
-
 			qmPopOutReorderPkt(prAdapter, prSwRfb,
 				prReturnedQue, RX_DATA_REORDER_BEHIND_COUNT);
+			DBGLOG(RX, TEMP,
+				"QM: No drop packet:[%d](%d){%d,%d} total:%lu\n",
+				prSwRfb->ucTid, u4SeqNo, u4WinStart, u4WinEnd,
+				RX_GET_CNT(&prAdapter->rRxCtrl,
+					RX_DATA_REORDER_BEHIND_COUNT));
 			return;
 		}
 #endif /* CFG_SUPPORT_LOWLATENCY_MODE */
 
 #if QM_RX_WIN_SSN_AUTO_ADVANCING && QM_RX_INIT_FALL_BEHIND_PASS
 		if (prReorderQueParm->fgIsWaitingForPktWithSsn) {
-			DBGLOG(QM, LOUD, "QM:(P)[%u](%u){%u,%u}\n",
-				prSwRfb->ucTid, u4SeqNo, u4WinStart, u4WinEnd);
 			qmPopOutReorderPkt(prAdapter, prSwRfb, prReturnedQue,
 				RX_DATA_REORDER_BEHIND_COUNT);
+			DBGLOG(RX, TEMP, "QM:(P)[%u](%u){%u,%u} total:%lu\n",
+				prSwRfb->ucTid, u4SeqNo, u4WinStart, u4WinEnd,
+				RX_GET_CNT(&prAdapter->rRxCtrl,
+					RX_DATA_REORDER_BEHIND_COUNT));
 			return;
 		}
 #endif
 
 		/* An erroneous packet */
-		DBGLOG(QM, LOUD, "QM:(D)[%u](%u){%u,%u}\n", prSwRfb->ucTid,
-			u4SeqNo, u4WinStart, u4WinEnd);
 		prSwRfb->eDst = RX_PKT_DESTINATION_NULL;
 		qmPopOutReorderPkt(prAdapter, prSwRfb, prReturnedQue,
-			RX_DATA_REORDER_BEHIND_COUNT);
+			RX_REORDER_BEHIND_DROP_COUNT);
+		DBGLOG(RX, TEMP, "QM:(D)[%u](%u){%u,%u} total:%lu\n",
+			prSwRfb->ucTid,	u4SeqNo, u4WinStart, u4WinEnd,
+			RX_GET_CNT(&prAdapter->rRxCtrl,
+				RX_REORDER_BEHIND_DROP_COUNT));
 		return;
 	}
 }
@@ -3857,6 +3868,11 @@ void qmInsertFallWithinReorderPkt(IN struct ADAPTER *prAdapter,
 				qmPopOutReorderPkt(prAdapter,
 					prSwRfb, prReturnedQue,
 					RX_DUPICATE_DROP_COUNT);
+				DBGLOG(RX, TEMP,
+					"seq=%d dup drop total:%lu\n",
+					prSwRfb->u2SSN,
+					RX_GET_CNT(&prAdapter->rRxCtrl,
+						RX_DUPICATE_DROP_COUNT));
 				LINK_QUALITY_COUNT_DUP(prAdapter, prSwRfb);
 				return;
 			}
@@ -3971,7 +3987,6 @@ void qmPopOutReorderPkt(IN struct ADAPTER *prAdapter,
 			struct SW_RFB *);
 	}
 #endif
-
 	RX_ADD_CNT(&prAdapter->rRxCtrl, eRxCounter, u4PktCnt);
 }
 
@@ -4063,7 +4078,7 @@ void qmPopOutDueToFallWithin(IN struct ADAPTER *prAdapter,
 				prReorderQueParm->u2FirstBubbleSn =
 					prReorderQueParm->u2WinStart;
 
-				DBGLOG(QM, TRACE,
+				DBGLOG(RX, TEMP,
 					"QM:(Bub Timer) STA[%u] TID[%u] BubSN[%u] Win{%d, %d}\n",
 					prReorderQueParm->ucStaRecIdx,
 					prReorderedSwRfb->ucTid,
@@ -4078,7 +4093,7 @@ void qmPopOutDueToFallWithin(IN struct ADAPTER *prAdapter,
 				prAdapter->u4QmRxBaMissTimeout
 				))) {
 
-				DBGLOG(QM, TRACE,
+				DBGLOG(RX, TEMP,
 					"QM:RX BA Timout Next Tid %d SSN %d\n",
 					prReorderQueParm->ucTid,
 					prReorderedSwRfb->u2SSN);
@@ -4111,12 +4126,14 @@ void qmPopOutDueToFallWithin(IN struct ADAPTER *prAdapter,
 					NULL;
 			}
 			prReorderQue->u4NumElem--;
-			DBGLOG(QM, LOUD, "QM: [%d] %d (%d)\n",
-				prReorderQueParm->ucTid,
-				prReorderedSwRfb->u2PacketLen,
-				prReorderedSwRfb->u2SSN);
 			qmPopOutReorderPkt(prAdapter, prReorderedSwRfb,
 				prReturnedQue, RX_DATA_REORDER_WITHIN_COUNT);
+			DBGLOG(RX, TEMP, "QM: [%d] %d (%d) within total:%lu\n",
+				prReorderQueParm->ucTid,
+				prReorderedSwRfb->u2PacketLen,
+				prReorderedSwRfb->u2SSN,
+				RX_GET_CNT(&prAdapter->rRxCtrl,
+					RX_DATA_REORDER_WITHIN_COUNT));
 		}
 	}
 
@@ -4220,7 +4237,7 @@ void qmPopOutDueToFallAhead(IN struct ADAPTER *prAdapter,
 				prReorderQueParm->u2FirstBubbleSn =
 					prReorderQueParm->u2WinStart;
 
-				DBGLOG(QM, TRACE,
+				DBGLOG(RX, TEMP,
 					"QM:(Bub Timer) STA[%u] TID[%u] BubSN[%u] Win{%d, %d}\n",
 					prReorderQueParm->ucStaRecIdx,
 					prReorderedSwRfb->ucTid,
@@ -4244,13 +4261,14 @@ void qmPopOutDueToFallAhead(IN struct ADAPTER *prAdapter,
 				prNext)->prPrev = NULL;
 			}
 			prReorderQue->u4NumElem--;
-			DBGLOG_LIMITED(QM, TRACE, "QM: [%u] %u (%u)\n",
-				       prReorderQueParm->ucTid,
-				       prReorderedSwRfb->u2PacketLen,
-				       prReorderedSwRfb->u2SSN);
-
 			qmPopOutReorderPkt(prAdapter, prReorderedSwRfb,
 				prReturnedQue, RX_DATA_REORDER_AHEAD_COUNT);
+			DBGLOG(RX, TEMP, "QM: [%u] %u (%u) ahead total:%lu\n",
+				prReorderQueParm->ucTid,
+				prReorderedSwRfb->u2PacketLen,
+				prReorderedSwRfb->u2SSN,
+				RX_GET_CNT(&prAdapter->rRxCtrl,
+					RX_DATA_REORDER_WITHIN_COUNT));
 		}
 	}
 
@@ -7922,18 +7940,13 @@ void qmHandleRxDhcpPackets(struct ADAPTER *prAdapter,
 						sizeof(gatewayIp));
 				return;
 			} else if (prBootp->aucOptions[i + 6] == 0x05) {
-				struct AIS_FSM_INFO *prAisFsmInfo = NULL;
 				uint8_t ucBssIndex =
 					secGetBssIdxByRfb(
 					prAdapter, prSwRfb);
-				prAisFsmInfo =
-					aisGetAisFsmInfo(prAdapter,
-					ucBssIndex);
 				/* Check if join timer is ticking, then release
 				 * channel privilege and stop join timer.
 				 */
 				qmReleaseCHAtFinishedDhcp(prAdapter,
-					&prAisFsmInfo->rJoinTimeoutTimer,
 					ucBssIndex);
 			}
 			dhcpTypeGot = 1;
@@ -8167,11 +8180,30 @@ u_int8_t qmHandleRxReplay(struct ADAPTER *prAdapter,
 #endif
 
 u_int8_t
+qmIsIPLayerPacket(uint8_t *pucPkt)
+{
+	uint16_t u2EtherType =
+		(pucPkt[ETH_TYPE_LEN_OFFSET] << 8)
+			| (pucPkt[ETH_TYPE_LEN_OFFSET + 1]);
+
+	if (u2EtherType == ETH_P_IPV4 || u2EtherType == ETH_P_IPV6) {
+		uint8_t *pucEthBody = &pucPkt[ETH_HLEN];
+		uint8_t ucIpProto =
+			(u2EtherType == ETH_P_IPV4 ?
+				pucEthBody[IP_PROTO_HLEN] :
+				pucEthBody[IPV6_HDR_PROTOCOL_OFFSET]);
+
+		if (ucIpProto == IP_PRO_UDP || ucIpProto == IP_PRO_TCP)
+			return TRUE;
+	}
+
+	return FALSE;
+}
+
+u_int8_t
 qmIsNoDropPacket(IN struct ADAPTER *prAdapter, IN struct SW_RFB *prSwRfb)
 {
 	uint8_t *pucData = (uint8_t *) prSwRfb->pvHeader;
-	uint16_t u2Etype = (pucData[ETH_TYPE_LEN_OFFSET] << 8)
-		| (pucData[ETH_TYPE_LEN_OFFSET + 1]);
 	uint8_t ucBssIndex
 		= secGetBssIdxByWlanIdx(prAdapter, prSwRfb->ucWlanIdx);
 	u_int8_t fgCheckDrop = FALSE;
@@ -8210,13 +8242,8 @@ qmIsNoDropPacket(IN struct ADAPTER *prAdapter, IN struct SW_RFB *prSwRfb)
 	}
 #endif
 
-	if (fgCheckDrop && u2Etype == ETH_P_IP) {
-		uint8_t *pucEthBody = &pucData[ETH_HLEN];
-		uint8_t ucIpProto = pucEthBody[IP_PROTO_HLEN];
-
-		if (ucIpProto == IP_PRO_UDP || ucIpProto == IP_PRO_TCP)
-			return TRUE;
-	}
+	if (fgCheckDrop && qmIsIPLayerPacket(pucData))
+		return TRUE;
 
 	/* For some special packet, like DNS, DHCP,
 	 * do not drop evan fall behind.
@@ -8318,13 +8345,31 @@ void qmHandleDelTspec(struct ADAPTER *prAdapter, struct STA_RECORD *prStaRec,
 }
 
 void qmReleaseCHAtFinishedDhcp(struct ADAPTER *prAdapter,
-	struct TIMER *prTimer, uint8_t ucBssIndex)
+			uint8_t ucBssIndex)
 {
-	if (!timerPendingTimer(prTimer)) {
-		DBGLOG(QM, ERROR, "No channel occupation\n");
-	} else {
-		DBGLOG(QM, INFO, "Dhcp done, stop join timer.\n");
-		cnmTimerStopTimer(prAdapter, prTimer);
-		aisFsmRunEventJoinTimeout(prAdapter, ucBssIndex);
+	struct BSS_INFO *prBssInfo;
+	struct AIS_FSM_INFO *prAisFsmInfo = (struct AIS_FSM_INFO *) NULL;
+
+	if (prAdapter == NULL)
+		return;
+
+	prBssInfo = GET_BSS_INFO_BY_INDEX(prAdapter, ucBssIndex);
+	if (prBssInfo == NULL)
+		return;
+
+	if (IS_BSS_AIS(prBssInfo)) { /* STA */
+		prAisFsmInfo = aisGetAisFsmInfo(prAdapter, ucBssIndex);
+
+		if (!timerPendingTimer(&prAisFsmInfo->rJoinTimeoutTimer)) {
+			DBGLOG(QM, ERROR, "No channel occupation\n");
+		} else {
+			DBGLOG(QM, INFO, "Dhcp done, stop join timer.\n");
+			cnmTimerStopTimer(prAdapter,
+				&prAisFsmInfo->rJoinTimeoutTimer);
+			aisFsmRunEventJoinTimeout(prAdapter, ucBssIndex);
+		}
+	} else if (IS_BSS_P2P(prBssInfo)) { /* GC */
+		DBGLOG(QM, INFO, "Dhcp done, stop GC join timer\n");
+		p2pRoleFsmNotifyDhcpDone(prAdapter, ucBssIndex);
 	}
 }

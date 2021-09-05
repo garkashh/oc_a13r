@@ -274,6 +274,12 @@ u_int8_t rsnParseRsnIE(IN struct ADAPTER *prAdapter,
 				u2PmkidCount);
 			return FALSE;
 		}
+
+		if (u2PmkidCount > 0) {
+			kalMemCopy(prRsnInfo->aucPmkid, cp, IW_PMKID_LEN);
+			cp += IW_PMKID_LEN;
+			u4RemainRsnIeLen -= IW_PMKID_LEN;
+		}
 	} while (FALSE);
 
 	/* Save the RSN information for the BSS. */
@@ -351,7 +357,9 @@ u_int8_t rsnParseRsnIE(IN struct ADAPTER *prAdapter,
 
 	prRsnInfo->u2RsnCap = u2Cap;
 	prRsnInfo->fgRsnCapPresent = TRUE;
-	DBGLOG(RSN, LOUD, "RSN cap: 0x%04x\n", prRsnInfo->u2RsnCap);
+	prRsnInfo->u2PmkidCount = u2PmkidCount;
+	DBGLOG(RSN, LOUD, "RSN cap: 0x%04x, PMKID count: %d\n",
+		prRsnInfo->u2RsnCap, prRsnInfo->u2PmkidCount);
 
 	return TRUE;
 }				/* rsnParseRsnIE */
@@ -767,8 +775,8 @@ uint8_t rsnKeyMgmtWpa(IN struct ADAPTER *prAdapter,
 	       eAuthMode == AUTH_MODE_WPA2_FT ||
 	       eAuthMode == AUTH_MODE_WPA3_SAE ||
 	       eAuthMode == AUTH_MODE_WPA3_OWE ||
-	       rsnSearchAKMSuite(prAdapter, RSN_CIPHER_SUITE_OWE, &i, bssidx) ||
-	       rsnSearchAKMSuite(prAdapter, RSN_CIPHER_SUITE_SAE, &i, bssidx);
+	       rsnSearchAKMSuite(prAdapter, RSN_AKM_SUITE_OWE, &i, bssidx) ||
+	       rsnSearchAKMSuite(prAdapter, RSN_AKM_SUITE_SAE, &i, bssidx);
 }
 
 /*----------------------------------------------------------------------------*/
@@ -929,6 +937,11 @@ u_int8_t rsnPerformPolicySelection(
 		fgSuiteSupported = FALSE;
 
 		switch (prBssRsnInfo->u4GroupKeyCipherSuite) {
+		case RSN_CIPHER_SUITE_GCMP_256:
+			if (eEncStatus ==
+			    ENUM_ENCRYPTION4_ENABLED)
+				fgSuiteSupported = TRUE;
+			break;
 		case WPA_CIPHER_SUITE_CCMP:
 		case RSN_CIPHER_SUITE_CCMP:
 			if (eEncStatus ==
@@ -972,6 +985,22 @@ u_int8_t rsnPerformPolicySelection(
 		       prBssRsnInfo->au4PairwiseKeyCipherSuite[0]);
 		/* Select pairwise/group ciphers */
 		switch (eEncStatus) {
+		case ENUM_ENCRYPTION4_ENABLED:
+		for (i = 0; i < prBssRsnInfo->u4PairwiseKeyCipherSuiteCount;
+			i++) {
+			/* TODO: WTBL cipher filed cannot
+			* 1-1 mapping to spec cipher suite number
+			*/
+			if (prBssRsnInfo->au4PairwiseKeyCipherSuite[i] ==
+				    RSN_CIPHER_SUITE_GCMP_256) {
+				u4PairwiseCipher =
+					prBssRsnInfo->
+					au4PairwiseKeyCipherSuite[i];
+			}
+		}
+		u4GroupCipher = prBssRsnInfo->u4GroupKeyCipherSuite;
+			break;
+
 		case ENUM_ENCRYPTION3_ENABLED:
 			for (i = 0; i < prBssRsnInfo->
 				u4PairwiseKeyCipherSuiteCount; i++) {
@@ -1184,7 +1213,12 @@ u_int8_t rsnPerformPolicySelection(
 			->fgMgmtProtection);
 #endif
 
-	if (GET_SELECTOR_TYPE(u4GroupCipher) == CIPHER_SUITE_CCMP) {
+	/* TODO: WTBL cipher filed cannot
+	* 1-1 mapping to spec cipher suite number
+	*/
+	if (u4GroupCipher == RSN_CIPHER_SUITE_GCMP_256) {
+		prBss->ucEncLevel = 4;
+	} else if (GET_SELECTOR_TYPE(u4GroupCipher) == CIPHER_SUITE_CCMP) {
 		prBss->ucEncLevel = 3;
 	} else if (GET_SELECTOR_TYPE(u4GroupCipher) == CIPHER_SUITE_TKIP) {
 		prBss->ucEncLevel = 2;
@@ -1612,11 +1646,15 @@ void rsnGenerateRSNIE(IN struct ADAPTER *prAdapter,
 	eAuthMode = aisGetAuthMode(prAdapter, ucBssIndex);
 
 	/* For FT, we reuse the RSN Element composed in userspace */
-	if (authAddRSNIE_impl(prAdapter, prMsduInfo))
+	if (authAddRSNIE_impl(prAdapter, prMsduInfo)) {
+		DBGLOG(RSN, TRACE, "RSN IE: authAddRSNIE return\n");
 		return;
+	}
 
-	if (_addRSNIE_impl(prAdapter, prMsduInfo))
+	if (_addRSNIE_impl(prAdapter, prMsduInfo)) {
+		DBGLOG(RSN, TRACE, "RSN IE: _addRSNIE return\n");
 		return;
+	}
 
 	prBssInfo = prAdapter->aprBssInfo[ucBssIndex];
 
@@ -1857,6 +1895,8 @@ void rsnParserCheckForRSNCCMPPSK(struct ADAPTER *prAdapter,
 	uint8_t i;
 	uint16_t statusCode;
 
+	prBssInfo = GET_BSS_INFO_BY_INDEX(prAdapter,
+					  prStaRec->ucBssIndex);
 	*pu2StatusCode = STATUS_CODE_INVALID_INFO_ELEMENT;
 
 	if (rsnParseRsnIE(prAdapter, prIe, &rRsnIe)) {
@@ -1890,6 +1930,42 @@ void rsnParserCheckForRSNCCMPPSK(struct ADAPTER *prAdapter,
 			return;
 		}
 
+		if (prAdapter->rWifiVar.fgSapCheckPmkidInDriver
+			&& prBssInfo->u4RsnSelectedAKMSuite
+				== RSN_AKM_SUITE_SAE
+			&& rRsnIe.u2PmkidCount > 0) {
+			struct PMKID_ENTRY *entry =
+				rsnSearchPmkidEntry(prAdapter,
+				prStaRec->aucMacAddr,
+				prStaRec->ucBssIndex);
+
+			DBGLOG(RSN, LOUD,
+				"Parse PMKID " PMKSTR " from " MACSTR "\n",
+				rRsnIe.aucPmkid[0], rRsnIe.aucPmkid[1],
+				rRsnIe.aucPmkid[2], rRsnIe.aucPmkid[3],
+				rRsnIe.aucPmkid[4], rRsnIe.aucPmkid[5],
+				rRsnIe.aucPmkid[6], rRsnIe.aucPmkid[7],
+				rRsnIe.aucPmkid[8], rRsnIe.aucPmkid[9],
+				rRsnIe.aucPmkid[10], rRsnIe.aucPmkid[11],
+				rRsnIe.aucPmkid[12] + rRsnIe.aucPmkid[13],
+				rRsnIe.aucPmkid[14], rRsnIe.aucPmkid[15],
+				MAC2STR(prStaRec->aucMacAddr));
+
+			if (!entry) {
+				DBGLOG(RSN, WARN, "RSN with no PMKID\n");
+				*pu2StatusCode = STATUS_INVALID_PMKID;
+				return;
+			} else if (kalMemCmp(
+				rRsnIe.aucPmkid,
+				entry->rBssidInfo.arPMKID,
+				IW_PMKID_LEN) != 0) {
+				DBGLOG(RSN, WARN, "RSN with invalid PMKID\n");
+				*pu2StatusCode = STATUS_INVALID_PMKID;
+				return;
+			}
+
+		}
+
 		DBGLOG(RSN, TRACE, "RSN with CCMP-PSK\n");
 		*pu2StatusCode = WLAN_STATUS_SUCCESS;
 
@@ -1899,6 +1975,8 @@ void rsnParserCheckForRSNCCMPPSK(struct ADAPTER *prAdapter,
 		 * error 30 ASSOC_REJECTED_TEMPORARILY
 		 */
 		if (rsnCheckBipKeyInstalled(prAdapter, prStaRec)) {
+			DBGLOG(AAA, INFO,
+				"Drop RxAssoc\n");
 			*pu2StatusCode = STATUS_CODE_ASSOC_REJECTED_TEMPORARILY;
 			return;
 		}
@@ -1937,9 +2015,6 @@ void rsnParserCheckForRSNCCMPPSK(struct ADAPTER *prAdapter,
 		       prStaRec->rPmfCfg.fgMfpc, prStaRec->rPmfCfg.fgMfpr,
 		       prStaRec->rPmfCfg.fgSha256, prStaRec->ucBssIndex,
 		       prStaRec->rPmfCfg.fgApplyPmf);
-
-		prBssInfo = GET_BSS_INFO_BY_INDEX(prAdapter,
-						  prStaRec->ucBssIndex);
 
 		/* if PMF validation fail, return success as legacy association
 		 */
@@ -2079,13 +2154,14 @@ struct PMKID_ENTRY *rsnSearchPmkidEntry(IN struct ADAPTER *prAdapter,
 			     IN uint8_t *pucBssid,
 			     IN uint8_t ucBssIndex)
 {
-	struct AIS_SPECIFIC_BSS_INFO *prAisSpecBssInfo;
+	struct BSS_INFO *prBssInfo;
+
 	struct PMKID_ENTRY *entry;
 	struct LINK *cache;
 
-	prAisSpecBssInfo = aisGetAisSpecBssInfo(prAdapter,
+	prBssInfo = GET_BSS_INFO_BY_INDEX(prAdapter,
 		ucBssIndex);
-	cache = &prAisSpecBssInfo->rPmkidCache;
+	cache = &prBssInfo->rPmkidCache;
 
 	LINK_FOR_EACH_ENTRY(entry, cache, rLinkEntry, struct PMKID_ENTRY) {
 		if (EQUAL_MAC_ADDR(entry->rBssidInfo.arBSSID, pucBssid))
@@ -2160,13 +2236,13 @@ void rsnCheckPmkidCache(IN struct ADAPTER *prAdapter, IN struct BSS_DESC *prBss,
 uint32_t rsnSetPmkid(IN struct ADAPTER *prAdapter,
 		    IN struct PARAM_PMKID *prPmkid)
 {
-	struct AIS_SPECIFIC_BSS_INFO *prAisSpecBssInfo;
+	struct BSS_INFO *prBssInfo;
 	struct PMKID_ENTRY *entry;
 	struct LINK *cache;
 
-	prAisSpecBssInfo = aisGetAisSpecBssInfo(prAdapter,
+	prBssInfo = GET_BSS_INFO_BY_INDEX(prAdapter,
 		prPmkid->ucBssIdx);
-	cache = &prAisSpecBssInfo->rPmkidCache;
+	cache = &prBssInfo->rPmkidCache;
 
 	entry = rsnSearchPmkidEntry(prAdapter, prPmkid->arBSSID,
 		prPmkid->ucBssIdx);
@@ -2204,7 +2280,7 @@ uint32_t rsnSetPmkid(IN struct ADAPTER *prAdapter,
 uint32_t rsnDelPmkid(IN struct ADAPTER *prAdapter,
 		    IN struct PARAM_PMKID *prPmkid)
 {
-	struct AIS_SPECIFIC_BSS_INFO *prAisSpecBssInfo;
+	struct BSS_INFO *prBssInfo;
 	struct PMKID_ENTRY *entry;
 	struct LINK *cache;
 
@@ -2215,9 +2291,9 @@ uint32_t rsnDelPmkid(IN struct ADAPTER *prAdapter,
 		prPmkid->ucBssIdx,
 		MAC2STR(prPmkid->arBSSID));
 
-	prAisSpecBssInfo = aisGetAisSpecBssInfo(prAdapter,
+	prBssInfo = GET_BSS_INFO_BY_INDEX(prAdapter,
 		prPmkid->ucBssIdx);
-	cache = &prAisSpecBssInfo->rPmkidCache;
+	cache = &prBssInfo->rPmkidCache;
 	entry = rsnSearchPmkidEntry(prAdapter, prPmkid->arBSSID,
 		prPmkid->ucBssIdx);
 	if (entry) {
@@ -2242,13 +2318,13 @@ uint32_t rsnDelPmkid(IN struct ADAPTER *prAdapter,
 /*----------------------------------------------------------------------------*/
 uint32_t rsnFlushPmkid(IN struct ADAPTER *prAdapter, IN uint8_t ucBssIndex)
 {
-	struct AIS_SPECIFIC_BSS_INFO *prAisSpecBssInfo;
+	struct BSS_INFO *prBssInfo;
 	struct PMKID_ENTRY *entry;
 	struct LINK *cache;
 
-	prAisSpecBssInfo =
-		aisGetAisSpecBssInfo(prAdapter, ucBssIndex);
-	cache = &prAisSpecBssInfo->rPmkidCache;
+	prBssInfo =
+		GET_BSS_INFO_BY_INDEX(prAdapter, ucBssIndex);
+	cache = &prBssInfo->rPmkidCache;
 
 	DBGLOG(RSN, TRACE, "[%d] Flush Pmkid total:%d\n",
 		ucBssIndex,

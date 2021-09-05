@@ -58,9 +58,6 @@ static u_int8_t rrmAllMeasurementIssued(
 static void rrmCalibrateRepetions(
 	struct RADIO_MEASUREMENT_REQ_PARAMS *prRmReq);
 
-static void rrmCollectBeaconReport(IN struct ADAPTER *prAdapter,
-	IN struct BSS_DESC *prBssDesc, IN uint8_t ucBssIndex);
-
 static void rrmHandleBeaconReqSubelem(
 	IN struct ADAPTER *prAdapter, IN uint8_t ucBssIndex);
 
@@ -575,16 +572,6 @@ schedule_next:
 	}
 }
 
-u_int8_t rrmBcnRmRunning(struct ADAPTER *prAdapter,
-	uint8_t ucBssIndex)
-{
-	struct RADIO_MEASUREMENT_REQ_PARAMS *prRmReq =
-		aisGetRmReqParam(prAdapter, ucBssIndex);
-
-	return prRmReq->rBcnRmParam.eState ==
-	       RM_ON_GOING;
-}
-
 u_int8_t rrmFillScanMsg(struct ADAPTER *prAdapter,
 			struct MSG_SCN_SCAN_REQ_V2 *prMsg)
 {
@@ -753,11 +740,14 @@ u_int8_t rrmFillScanMsg(struct ADAPTER *prAdapter,
 		u2RemainLen -= IE_SIZE(pucSubIE);
 		pucSubIE += IE_SIZE(pucSubIE);
 	}
+
+	GET_CURRENT_SYSTIME(&prRmReq->rScanStartTime);
 	DBGLOG(RRM, INFO,
 	       "SSIDtype %d, ScanType %d, Dwell %d, MinDwell %d, ChnlType %d, ChnlNum %d\n",
 		prMsg->ucSSIDType, prMsg->eScanType, prMsg->u2ChannelDwellTime,
 	       prMsg->u2ChannelMinDwellTime, prMsg->eScanChannel,
 	       prMsg->ucChannelListNum);
+
 	return TRUE;
 }
 
@@ -906,8 +896,9 @@ void rrmProcessRadioMeasurementRequest(struct ADAPTER *prAdapter,
 		DBGLOG(RRM, INFO, "StaRec is NULL, ignore request\n");
 		return;
 	}
-	DBGLOG(RRM, INFO, "RM Request From %pM, DialogToken %d\n",
-			prRmReqFrame->aucSrcAddr, prRmReqFrame->ucDialogToken);
+	DBGLOG(RRM, INFO, "RM Request From "MACSTR", DialogToken %d\n",
+			MAC2STR(prRmReqFrame->aucSrcAddr),
+			prRmReqFrame->ucDialogToken);
 	eNewPriority = rrmGetRmRequestPriority(prRmReqFrame->aucDestAddr);
 	if (prRmReqParam->ePriority > eNewPriority) {
 		DBGLOG(RRM, INFO, "ignore lower precedence rm request\n");
@@ -1331,6 +1322,7 @@ int rrmBeaconRepAddFrameBody(struct BCN_RM_PARAMS *data,
 {
 	uint8_t *ies = *ies_buf;
 	uint32_t ies_len = *ie_len;
+	uint32_t old_ies_len = ies_len;
 	uint8_t *pos = buf;
 	int rem_len;
 	enum BEACON_REPORT_DETAIL detail = data->reportDetail;
@@ -1403,7 +1395,7 @@ int rrmBeaconRepAddFrameBody(struct BCN_RM_PARAMS *data,
 
 	/* Now the length is known */
 	buf[1] = pos - buf - 2;
-	return pos - buf;
+	return old_ies_len != ies_len ? pos - buf : -EINVAL;
 }
 
 int rrmReportElem(struct RM_MEASURE_REPORT_ENTRY *reportEntry,
@@ -1521,7 +1513,7 @@ out:
 	return ret;
 }
 
-static void rrmCollectBeaconReport(IN struct ADAPTER *prAdapter,
+void rrmCollectBeaconReport(IN struct ADAPTER *prAdapter,
 	IN struct BSS_DESC *prBssDesc, IN uint8_t ucBssIndex)
 {
 	struct RADIO_MEASUREMENT_REQ_PARAMS *rmReq =
@@ -1546,8 +1538,8 @@ static void rrmCollectBeaconReport(IN struct ADAPTER *prAdapter,
 	if (!EQUAL_MAC_ADDR(bcnReq->aucBssid, "\xff\xff\xff\xff\xff\xff") &&
 		!EQUAL_MAC_ADDR(bcnReq->aucBssid, bssid)) {
 		DBGLOG(RRM, INFO,
-		       "bssid mismatch, req %pM, actual %pM\n",
-		       bcnReq->aucBssid, bssid);
+		       "bssid mismatch, req "MACSTR", actual "MACSTR"\n",
+		       MAC2STR(bcnReq->aucBssid), MAC2STR(bssid));
 		return;
 	}
 
@@ -1566,8 +1558,9 @@ static void rrmCollectBeaconReport(IN struct ADAPTER *prAdapter,
 	}
 	if (!validChannel &&
 	    bcnReq->ucChannel > 0 && bcnReq->ucChannel < 255) {
-		DBGLOG(RRM, INFO, "%pM chnl %d invalid, req %d\n",
-			bssid, prBssDesc->ucChannelNum, bcnReq->ucChannel);
+		DBGLOG(RRM, INFO, ""MACSTR" chnl %d invalid, req %d\n",
+			MAC2STR(bssid), prBssDesc->ucChannelNum,
+			bcnReq->ucChannel);
 		return;
 	}
 
@@ -1583,8 +1576,8 @@ static void rrmCollectBeaconReport(IN struct ADAPTER *prAdapter,
 		kalMemCopy(bcnSsid, prBssDesc->aucSSID,
 		       min_t(uint8_t, prBssDesc->ucSSIDLen, ELEM_MAX_LEN_SSID));
 		DBGLOG(RRM, TRACE,
-		       "%pM SSID mismatch, req(%d, %s), bcn(%d, %s)\n",
-		       bssid, data->ssidLen, HIDE(reqSsid),
+		       ""MACSTR" SSID mismatch, req(%d, %s), bcn(%d, %s)\n",
+		       MAC2STR(bssid), data->ssidLen, HIDE(reqSsid),
 		       prBssDesc->ucSSIDLen, HIDE(bcnSsid));
 		return;
 	}
@@ -1613,8 +1606,8 @@ static void rrmCollectBeaconReport(IN struct ADAPTER *prAdapter,
 		reportEntry->u2MeasReportLen = 0;
 		reportEntry->pucMeasReport = NULL;
 		DBGLOG(RRM, TRACE,
-		       "allocate entry for Bss %pM, total entry %u\n",
-			bssid, rmRep->rReportLink.u4NumElem);
+		       "allocate entry for Bss "MACSTR", total entry %u\n",
+			MAC2STR(bssid), rmRep->rReportLink.u4NumElem);
 		LINK_INSERT_TAIL(&rmRep->rReportLink,
 				 &reportEntry->rLinkEntry);
 	} else {
@@ -1659,15 +1652,9 @@ static void rrmCollectBeaconReport(IN struct ADAPTER *prAdapter,
 		 ies_len >= 2);
 
 	DBGLOG(RRM, TRACE,
-	       "Bss %pM, ReportDeail %d, IncludeIE Num %d, chnl %d\n",
-	       bssid, data->reportDetail, data->reportIeIdsLen,
+	       "Bss "MACSTR", ReportDeail %d, IncludeIE Num %d, chnl %d\n",
+	       MAC2STR(bssid), data->reportDetail, data->reportIeIdsLen,
 	       prBssDesc->ucChannelNum);
-}
-
-void rrmProcessBeaconAndProbeResp(struct ADAPTER *prAdapter,
-	IN struct BSS_DESC *prBssDesc, uint8_t ucBssIndex)
-{
-	rrmCollectBeaconReport(prAdapter, prBssDesc, ucBssIndex);
 }
 
 void rrmUpdateBssTimeTsf(struct ADAPTER *prAdapter, struct BSS_DESC *prBssDesc)

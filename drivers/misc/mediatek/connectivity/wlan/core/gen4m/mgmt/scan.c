@@ -1135,7 +1135,8 @@ void scanRemoveBssDescByBandAndNetwork(IN struct ADAPTER *prAdapter,
  */
 /*----------------------------------------------------------------------------*/
 void scanRemoveConnFlagOfBssDescByBssid(IN struct ADAPTER *prAdapter,
-					IN uint8_t aucBSSID[])
+					IN uint8_t aucBSSID[],
+					IN uint8_t ucBssIndex)
 {
 	struct SCAN_INFO *prScanInfo;
 	struct LINK *prBSSDescList;
@@ -1152,8 +1153,8 @@ void scanRemoveConnFlagOfBssDescByBssid(IN struct ADAPTER *prAdapter,
 		rLinkEntry, struct BSS_DESC) {
 
 		if (EQUAL_MAC_ADDR(prBssDesc->aucBSSID, aucBSSID)) {
-			prBssDesc->fgIsConnected = FALSE;
-			prBssDesc->fgIsConnecting = FALSE;
+			prBssDesc->fgIsConnected &= ~BIT(ucBssIndex);
+			prBssDesc->fgIsConnecting &= ~BIT(ucBssIndex);
 
 			/* BSSID is not unique, so need to
 			 * traverse whols link-list
@@ -1304,8 +1305,8 @@ struct BSS_DESC *scanAddToBssDesc(IN struct ADAPTER *prAdapter,
 	struct WLAN_BEACON_FRAME *prWlanBeaconFrame
 		= (struct WLAN_BEACON_FRAME *) NULL;
 	struct IE_SSID *prIeSsid = (struct IE_SSID *) NULL;
-	struct IE_SUPPORTED_RATE *prIeSupportedRate
-		= (struct IE_SUPPORTED_RATE *) NULL;
+	struct IE_SUPPORTED_RATE_IOT *prIeSupportedRate
+		= (struct IE_SUPPORTED_RATE_IOT *) NULL;
 	struct IE_EXT_SUPPORTED_RATE *prIeExtSupportedRate
 		= (struct IE_EXT_SUPPORTED_RATE *) NULL;
 	uint8_t ucHwChannelNum = 0;
@@ -1786,7 +1787,7 @@ struct BSS_DESC *scanAddToBssDesc(IN struct ADAPTER *prAdapter,
 			 */
 			if ((!prIeSupportedRate)
 				&& (IE_LEN(pucIE) <= RATE_NUM_SW))
-				prIeSupportedRate = SUP_RATES_IE(pucIE);
+				prIeSupportedRate = SUP_RATES_IOT_IE(pucIE);
 			break;
 
 		case ELEM_ID_TIM:
@@ -1979,7 +1980,9 @@ struct BSS_DESC *scanAddToBssDesc(IN struct ADAPTER *prAdapter,
 					prBssDesc->ucDCMMaxConRx =
 					HE_GET_PHY_CAP_DCM_MAX_CONSTELLATION_RX(
 						prHeCap->ucHePhyCap);
-					DBGLOG(SCN, INFO, "ER: SSID:%s,rx:%x\n",
+					DBGLOG(SCN, INFO,
+						"ER: BSSID:" MACSTR
+						" SSID:%s,rx:%x\n",
 						MAC2STR(prBssDesc->aucBSSID),
 						prBssDesc->aucSSID,
 						prBssDesc->ucDCMMaxConRx);
@@ -1989,7 +1992,9 @@ struct BSS_DESC *scanAddToBssDesc(IN struct ADAPTER *prAdapter,
 					prBssDesc->fgIsERSUDisable =
 					HE_IS_ER_SU_DISABLE(
 						prHeOp->ucHeOpParams);
-					DBGLOG(SCN, INFO, "ER: SSID:%s,er:%x\n",
+					DBGLOG(SCN, INFO,
+						"ER: BSSID:" MACSTR
+						" SSID:%s,er:%x\n",
 						MAC2STR(prBssDesc->aucBSSID),
 						prBssDesc->aucSSID,
 						prBssDesc->fgIsERSUDisable);
@@ -2805,17 +2810,6 @@ uint32_t scanProcessBeaconAndProbeResp(IN struct ADAPTER *prAdapter,
 				&rStatus, prBssDesc, prWlanBeaconFrame);
 		}
 #endif
-
-#if CFG_SUPPORT_802_11K
-		/* collect when running beacon request measurement */
-		for (u4Idx = 0; u4Idx < KAL_AIS_NUM; u4Idx++) {
-			if (rrmBcnRmRunning(prAdapter, u4Idx)) {
-				rrmProcessBeaconAndProbeResp(prAdapter,
-					prBssDesc, u4Idx);
-			}
-		}
-#endif
-
 	}
 
 	return rStatus;
@@ -3849,7 +3843,7 @@ void scanReqLog(struct CMD_SCAN_REQ_V2 *prCmdScanReq)
 		prCmdScanReq->u2ChannelDwellTime,
 		prCmdScanReq->u2ChannelMinDwellTime,
 		prCmdScanReq->ucScnFuncMask,
-		prCmdScanReq->aucRandomMac,
+		MAC2STR(prCmdScanReq->aucRandomMac),
 		strbuf != pos ? strbuf : "");
 #undef TEMP_LOG_TEMPLATE
 	kalMemFree(strbuf, VIR_MEM_TYPE, slen);
@@ -3860,13 +3854,16 @@ void scanResultLog(struct ADAPTER *prAdapter,
 {
 	struct WLAN_BEACON_FRAME *pFrame =
 		(struct WLAN_BEACON_FRAME *) prSwRfb->pvHeader;
+	KAL_SPIN_LOCK_DECLARATION();
 
+	KAL_ACQUIRE_SPIN_LOCK(prAdapter, SPIN_LOCK_BSSLIST_FW);
 	scanLogCacheAddBSS(
 		&(prAdapter->rWifiVar.rScanInfo.rScanLogCache.rBSSListFW),
 		prAdapter->rWifiVar.rScanInfo.rScanLogCache.arBSSListBufFW,
 		LOG_SCAN_RESULT_F2D,
 		pFrame->aucBSSID,
 		pFrame->u2SeqCtrl);
+	KAL_RELEASE_SPIN_LOCK(prAdapter, SPIN_LOCK_BSSLIST_FW);
 }
 
 void scanLogCacheAddBSS(struct LINK *prList,
@@ -3883,8 +3880,15 @@ void scanLogCacheAddBSS(struct LINK *prList,
 
 	LINK_FOR_EACH_ENTRY(pSavedBss, prList,
 		rLinkEntry, struct SCAN_LOG_ELEM_BSS) {
-		if (EQUAL_MAC_ADDR(pSavedBss->aucBSSID, bssId))
+		if (pSavedBss && bssId) {
+			if (EQUAL_MAC_ADDR(pSavedBss->aucBSSID, bssId))
+				return;
+		} else {
+			scanlog_dbg(prefix, ERROR,
+				"pSavedBss(0x%x) or bssid(0x%x) is NULL\n",
+				pSavedBss, bssId);
 			return;
+		}
 	}
 
 	if (prList->u4NumElem < SCAN_LOG_BUFF_SIZE) {
@@ -3906,10 +3910,9 @@ void scanLogCacheAddBSS(struct LINK *prList,
 	LINK_INSERT_TAIL(prList, &(pBss->rLinkEntry));
 }
 
-void scanLogCacheFlushBSS(struct LINK *prList, enum ENUM_SCAN_LOG_PREFIX prefix,
-	const uint16_t logBufLen)
+void scanLogCacheFlushBSS(struct LINK *prList, enum ENUM_SCAN_LOG_PREFIX prefix)
 {
-	char *prlogBuf;
+	char arlogBuf[SCAN_LOG_MSG_MAX_LEN];
 	uint32_t idx = 0;
 	struct SCAN_LOG_ELEM_BSS *pBss = NULL;
 #if CFG_SHOW_FULL_MACADDR
@@ -3927,16 +3930,11 @@ void scanLogCacheFlushBSS(struct LINK *prList, enum ENUM_SCAN_LOG_PREFIX prefix,
 	if (LINK_IS_EMPTY(prList))
 		return;
 
-	prlogBuf = kalMemAlloc(logBufLen, VIR_MEM_TYPE);
-	if (prlogBuf == NULL) {
-		DBGLOG(SCN, WARN, "logBuf is NULL, skip!\n");
-		return;
-	}
-	kalMemZero(prlogBuf, logBufLen);
+	kalMemZero(arlogBuf, SCAN_LOG_MSG_MAX_LEN);
 	/* The maximum characters of uint32_t could be 10. Thus, the
 	 * mininum size should be 10+3 for the format "%u: ".
 	 */
-	if (logBufLen < 13 || dataLen+1 > logBufLen) {
+	if (dataLen + 1 > SCAN_LOG_MSG_MAX_LEN) {
 		scanlog_dbg(prefix, INFO, "Scan log buffer is too small.\n");
 		while (!LINK_IS_EMPTY(prList)) {
 			LINK_REMOVE_HEAD(prList,
@@ -3944,13 +3942,14 @@ void scanLogCacheFlushBSS(struct LINK *prList, enum ENUM_SCAN_LOG_PREFIX prefix,
 		}
 		return;
 	}
-	idx += kalSnprintf(prlogBuf, logBufLen, "%u: ", prList->u4NumElem);
+	idx += kalSnprintf(arlogBuf, SCAN_LOG_MSG_MAX_LEN, "%u: ",
+			prList->u4NumElem);
 
 	while (!LINK_IS_EMPTY(prList)) {
-		if (idx+dataLen+1 > logBufLen) {
-			prlogBuf[idx] = 0; /* terminating null byte */
+		if (idx+dataLen+1 > SCAN_LOG_MSG_MAX_LEN) {
+			arlogBuf[idx] = 0; /* terminating null byte */
 			if (prefix != LOG_SCAN_D2D)
-				scanlog_dbg(prefix, INFO, "%s\n", prlogBuf);
+				scanlog_dbg(prefix, INFO, "%s\n", arlogBuf);
 			idx = 0;
 		}
 
@@ -3958,7 +3957,7 @@ void scanLogCacheFlushBSS(struct LINK *prList, enum ENUM_SCAN_LOG_PREFIX prefix,
 			pBss, struct SCAN_LOG_ELEM_BSS *);
 
 #if CFG_SHOW_FULL_MACADDR
-		idx += kalSnprintf(prlogBuf+idx, dataLen+1,
+		idx += kalSnprintf(arlogBuf+idx, dataLen+1,
 			"%02x%02x%02x%02x%02x%02x",
 			((uint8_t *)pBss->aucBSSID)[0],
 			((uint8_t *)pBss->aucBSSID)[1],
@@ -3967,7 +3966,7 @@ void scanLogCacheFlushBSS(struct LINK *prList, enum ENUM_SCAN_LOG_PREFIX prefix,
 			((uint8_t *)pBss->aucBSSID)[4],
 			((uint8_t *)pBss->aucBSSID)[5]);
 #else
-		idx += kalSnprintf(prlogBuf+idx, dataLen+1,
+		idx += kalSnprintf(arlogBuf+idx, dataLen+1,
 			"%02x%02x%03x%02x",
 			((uint8_t *)pBss->aucBSSID)[0],
 			((uint8_t *)pBss->aucBSSID)[1],
@@ -3979,20 +3978,28 @@ void scanLogCacheFlushBSS(struct LINK *prList, enum ENUM_SCAN_LOG_PREFIX prefix,
 
 	}
 	if (idx != 0) {
-		prlogBuf[idx] = 0; /* terminating null byte */
+		arlogBuf[idx] = 0; /* terminating null byte */
 		if (prefix != LOG_SCAN_D2D)
-			scanlog_dbg(prefix, INFO, "%s\n", prlogBuf);
+			scanlog_dbg(prefix, INFO, "%s\n", arlogBuf);
 		idx = 0;
 	}
 }
 
-void scanLogCacheFlushAll(struct SCAN_LOG_CACHE *prScanLogCache,
-	enum ENUM_SCAN_LOG_PREFIX prefix, const uint16_t logBufLen)
+void scanLogCacheFlushAll(struct ADAPTER *prAdapter,
+	struct SCAN_LOG_CACHE *prScanLogCache,
+	enum ENUM_SCAN_LOG_PREFIX prefix)
 {
+	KAL_SPIN_LOCK_DECLARATION();
+
+	KAL_ACQUIRE_SPIN_LOCK(prAdapter, SPIN_LOCK_BSSLIST_FW);
 	scanLogCacheFlushBSS(&(prScanLogCache->rBSSListFW),
-		prefix, logBufLen);
+		prefix);
+	KAL_RELEASE_SPIN_LOCK(prAdapter, SPIN_LOCK_BSSLIST_FW);
+
+	KAL_ACQUIRE_SPIN_LOCK(prAdapter, SPIN_LOCK_BSSLIST_CFG);
 	scanLogCacheFlushBSS(&(prScanLogCache->rBSSListCFG),
-		prefix, logBufLen);
+		prefix);
+	KAL_RELEASE_SPIN_LOCK(prAdapter, SPIN_LOCK_BSSLIST_CFG);
 }
 
 /*----------------------------------------------------------------------------*/

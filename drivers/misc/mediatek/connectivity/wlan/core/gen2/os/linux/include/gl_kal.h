@@ -452,8 +452,12 @@ typedef UINT_32 KAL_WAKE_LOCK_T, *P_KAL_WAKE_LOCK_T;
  */
 #define kalkStrtou32(cp, base, resp)                   kstrtou32(cp, base, resp)
 #define kalkStrtos32(cp, base, resp)                    kstrtos32(cp, base, resp)
-#define kalSnprintf(buf, size, fmt, ...)              snprintf(buf, size, fmt, __VA_ARGS__)
-#define kalSprintf(buf, fmt, ...)                     sprintf(buf, fmt, __VA_ARGS__)
+#define kalSnprintf(buf, size, fmt, ...)   \
+	_kalSnprintf((char *)(buf), (size_t)(size), \
+	(const char *)(fmt), ##__VA_ARGS__)
+#define kalSprintf(buf, fmt, ...)          \
+	_kalSprintf((char *)(buf), (const char *)(fmt), ##__VA_ARGS__)
+
 /* remove for AOSP */
 /* #define kalSScanf(buf, fmt, ...)                      sscanf(buf, fmt, __VA_ARGS__) */
 #define kalStrStr(ct, cs)                            strstr(ct, cs)
@@ -949,4 +953,8 @@ BOOLEAN kalSchedScanParseRandomMac(
 	P_BSS_INFO_T prBssInfo,
 	const struct cfg80211_sched_scan_request *request,
 	uint8_t *pucRandomMac, uint8_t *pucRandomMacMask);
+
+int _kalSnprintf(char *buf, size_t size, const char *fmt, ...);
+int _kalSprintf(char *buf, const char *fmt, ...);
+
 #endif /* _GL_KAL_H */

@@ -433,11 +433,13 @@ authSendAuthFrame(IN struct ADAPTER *prAdapter,
 	prConnSettings = &(prAdapter->rWifiVar.rConnSettings);
 #endif
 
+	ASSERT(prStaRec);
+
 	DBGLOG(SAA, LOUD, "Send Auth Frame %d, Status Code = %d\n",
 			u2TransactionSeqNum, u2StatusCode);
 #if CFG_SUPPORT_CFG80211_AUTH
-	if ((prConnSettings->ucAuthDataLen != 0) &&
-		!IS_STA_IN_P2P(prStaRec)) {
+	if (!IS_STA_IN_P2P(prStaRec) &&
+			(prConnSettings->ucAuthDataLen != 0)) {
 		DBGLOG(SAA, INFO, "prConnSettings->ucAuthDataLen = %d\n",
 			prConnSettings->ucAuthDataLen);
 		u2EstimatedFrameLen = (MAC_TX_RESERVED_FIELD +
@@ -551,8 +553,8 @@ authSendAuthFrame(IN struct ADAPTER *prAdapter,
 
 	/* fill the length of auth frame body */
 #if CFG_SUPPORT_CFG80211_AUTH
-	if ((prConnSettings->ucAuthDataLen != 0) &&
-		!IS_STA_IN_P2P(prStaRec))
+	if (!IS_STA_IN_P2P(prStaRec) &&
+			(prConnSettings->ucAuthDataLen != 0))
 		u2PayloadLen = (AUTH_ALGORITHM_NUM_FIELD_LEN +
 			prConnSettings->ucAuthDataLen);
 	else
@@ -1121,6 +1123,8 @@ authSendDeauthFrame(IN struct ADAPTER *prAdapter,
 	uint8_t aucBMC[] = BC_MAC_ADDR;
 #if CFG_SUPPORT_CFG80211_AUTH
 	struct WLAN_DEAUTH_FRAME *prDeauthFrame;
+	uint8_t ucRoleIdx = 0;
+	struct net_device *prNetDev = NULL;
 #endif
 
 	DBGLOG(RSN, INFO, "authSendDeauthFrame\n");
@@ -1333,9 +1337,24 @@ authSendDeauthFrame(IN struct ADAPTER *prAdapter,
 	DBGLOG(SAA, INFO, "notification of TX deauthentication, %d\n",
 		prMsduInfo->u2FrameLength);
 
-	cfg80211_tx_mlme_mgmt(prAdapter->prGlueInfo->prDevHandler,
-		(uint8_t *)prDeauthFrame,
-		(size_t)prMsduInfo->u2FrameLength);
+	if (prAdapter->fgIsP2PRegistered &&
+			IS_BSS_P2P(prBssInfo)) {
+		ucRoleIdx = (uint8_t)prBssInfo->u4PrivateData;
+		prNetDev = prAdapter->prGlueInfo->
+				prP2PInfo[ucRoleIdx]->aprRoleHandler;
+	} else {
+		prNetDev = prAdapter->prGlueInfo->prDevHandler;
+	}
+
+	if (prNetDev == NULL) {
+		DBGLOG(SAA, WARN, "dev get null\n");
+		prNetDev = prAdapter->prGlueInfo->prDevHandler;
+	}
+
+	kalIndicateTxDeauthToUpperLayer(
+			prNetDev,
+			(uint8_t *)prDeauthFrame,
+			(size_t)prMsduInfo->u2FrameLength);
 	DBGLOG(SAA, INFO,
 		"notification of TX deauthentication, Done\n");
 #endif

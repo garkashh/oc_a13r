@@ -257,8 +257,8 @@ void scnSendScanReqV2(IN struct ADAPTER *prAdapter)
 	/* Modify channelList number from 32 to 54 */
 	COPY_MAC_ADDR(prCmdScanReq->aucBSSID, prScanParam->aucBSSID);
 	if (!EQUAL_MAC_ADDR(prCmdScanReq->aucBSSID, "\xff\xff\xff\xff\xff\xff"))
-		DBGLOG(SCN, INFO, "Include BSSID %pM in probe request\n",
-		       prCmdScanReq->aucBSSID);
+		DBGLOG(SCN, INFO, "Include BSSID "MACSTR" in probe request\n",
+			MAC2STR(prCmdScanReq->aucBSSID));
 
 	prCmdScanReq->ucSeqNum = prScanParam->ucSeqNum;
 	prCmdScanReq->ucBssIndex = prScanParam->ucBssIndex;
@@ -391,10 +391,10 @@ void scnSendScanReqV2(IN struct ADAPTER *prAdapter)
 		prCmdScanReq->u2ChannelDwellTime,
 		prCmdScanReq->u2ChannelMinDwellTime,
 		prCmdScanReq->ucScnFuncMask,
-		prCmdScanReq->aucRandomMac);
+		MAC2STR(prCmdScanReq->aucRandomMac));
 
-	scanLogCacheFlushAll(&(prScanInfo->rScanLogCache),
-		LOG_SCAN_REQ_D2F, SCAN_LOG_MSG_MAX_LEN);
+	scanLogCacheFlushAll(prAdapter, &(prScanInfo->rScanLogCache),
+		LOG_SCAN_REQ_D2F);
 	scanReqLog(prCmdScanReq);
 	if (prCmdScanReq->ucBssIndex == KAL_NETWORK_TYPE_AIS_INDEX)
 		scanInitEssResult(prAdapter);
@@ -802,6 +802,7 @@ void scnEventScanDone(IN struct ADAPTER *prAdapter,
 	struct SCAN_INFO *prScanInfo;
 	struct SCAN_PARAM *prScanParam;
 	uint32_t u4ChCnt = 0;
+	KAL_SPIN_LOCK_DECLARATION();
 
 	prScanInfo = &(prAdapter->rWifiVar.rScanInfo);
 	prScanParam = &prScanInfo->rScanParam;
@@ -815,8 +816,10 @@ void scnEventScanDone(IN struct ADAPTER *prAdapter,
 			prScanDone->u4ScanDurBcnCnt,
 			prScanDone->ucSeqNum);
 
+		KAL_ACQUIRE_SPIN_LOCK(prAdapter, SPIN_LOCK_BSSLIST_FW);
 		scanLogCacheFlushBSS(&(prScanInfo->rScanLogCache.rBSSListFW),
-			LOG_SCAN_DONE_F2D, SCAN_LOG_MSG_MAX_LEN);
+			LOG_SCAN_DONE_F2D);
+		KAL_RELEASE_SPIN_LOCK(prAdapter, SPIN_LOCK_BSSLIST_FW);
 
 		if (prScanDone->ucCurrentState != FW_SCAN_STATE_SCAN_DONE) {
 			log_dbg(SCN, INFO, "FW Scan timeout!generate ScanDone event at State%d complete chan count%d ucChannelListNum%d\n",
@@ -1101,6 +1104,7 @@ scnFsmSchedScanRequest(IN struct ADAPTER *prAdapter,
 	prSchedScanParam->ucBssIndex = prAisBssInfo->ucBssIndex;
 	prSchedScanParam->fgStopAfterIndication = FALSE;
 
+	prSchedScanCmd->ucBssIndex = prSchedScanParam->ucBssIndex;
 	if (!IS_NET_ACTIVE(prAdapter, prAisBssInfo->ucBssIndex)) {
 		SET_NET_ACTIVE(prAdapter, prAisBssInfo->ucBssIndex);
 		/* sync with firmware */

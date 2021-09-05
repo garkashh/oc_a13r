@@ -1970,14 +1970,8 @@ int mtk_cfg80211_vendor_driver_memory_dump(struct wiphy *wiphy,
 		i4Status = -EINVAL;
 		goto err_handle_label;
 	}
-	/*HQ-zhangpeng modify for J15S 2020.09.05 start*/
-	/*
-	  This line needs to be returned. If it does not,
-	  we send the skb to the kernel and then run down to release the skb,
-	  which will cause the kernel null pointer reference and trigger KE
-	*/
+
 	return cfg80211_vendor_cmd_reply(skb);
-	/*HQ-zhangpeng modify for J15S 2020.09.05 end*/
 
 err_handle_label:
 	kfree_skb(skb);

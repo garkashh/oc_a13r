@@ -138,6 +138,13 @@ bssCreateStaRecFromBssDesc(IN struct ADAPTER *prAdapter,
 			   IN enum ENUM_STA_TYPE eStaType, IN uint8_t uBssIndex,
 			   IN struct BSS_DESC *prBssDesc);
 
+#if CFG_SUPPORT_CFG80211_AUTH
+struct STA_RECORD *
+bssUpdateStaRecFromCfgAssoc(IN struct ADAPTER *prAdapter,
+				IN struct BSS_DESC *prBssDesc,
+				IN struct STA_RECORD *prStaRec);
+#endif
+
 void bssComposeNullFrame(IN struct ADAPTER *prAdapter,
 			 IN uint8_t *pucBuffer, IN struct STA_RECORD *prStaRec);
 

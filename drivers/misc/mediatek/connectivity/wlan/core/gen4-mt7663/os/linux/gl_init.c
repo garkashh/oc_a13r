@@ -85,6 +85,10 @@
 #include "mtk_ts_wmt.h"
 #endif
 
+#if CFG_POWER_OFF_CTRL_SUPPORT
+#include <linux/reboot.h>
+#endif
+
 /*******************************************************************************
  *                              C O N S T A N T S
  *******************************************************************************
@@ -168,6 +172,12 @@ u_int8_t	g_fgIsCalDataBackuped = FALSE;
  *          dead loack
  */
 struct delayed_work sched_workq;
+
+#if CFG_SUPPORT_CFG80211_AUTH
+#if CFG_SUPPORT_CFG80211_QUEUE
+struct delayed_work cfg80211_workq;
+#endif
+#endif
 
 #define CFG_EEPRM_FILENAME    "EEPROM"
 #define FILE_NAME_MAX     64
@@ -459,7 +469,7 @@ static struct cfg80211_ops mtk_cfg_ops = {
 	.suspend = mtk_cfg_suspend,
 	.resume = mtk_cfg_resume,
 #if CFG_SUPPORT_CFG80211_AUTH
-	.auth = mtk_cfg80211_auth,
+	.auth = mtk_cfg_auth,
 #endif
 	.assoc = mtk_cfg_assoc,
 
@@ -509,7 +519,8 @@ static const struct wiphy_vendor_command
 		},
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_NETDEV,
-		.doit = mtk_cfg80211_vendor_get_channel_list
+		.doit = mtk_cfg80211_vendor_get_channel_list,
+		VENDOR_OPS_SET_POLICY(VENDOR_CMD_RAW_DATA)
 	},
 	{
 		{
@@ -518,7 +529,8 @@ static const struct wiphy_vendor_command
 		},
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_NETDEV,
-		.doit = mtk_cfg80211_vendor_set_country_code
+		.doit = mtk_cfg80211_vendor_set_country_code,
+		VENDOR_OPS_SET_POLICY(VENDOR_CMD_RAW_DATA)
 	},
 	{
 		{
@@ -527,7 +539,8 @@ static const struct wiphy_vendor_command
 		},
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV
 			| WIPHY_VENDOR_CMD_NEED_NETDEV,
-		.doit = mtk_cfg80211_vendor_set_scan_mac_oui
+		.doit = mtk_cfg80211_vendor_set_scan_mac_oui,
+		VENDOR_OPS_SET_POLICY(VENDOR_CMD_RAW_DATA)
 	},
 	{
 		{
@@ -536,7 +549,8 @@ static const struct wiphy_vendor_command
 		},
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_NETDEV,
-		.doit = mtk_cfg80211_vendor_set_band
+		.doit = mtk_cfg80211_vendor_set_band,
+		VENDOR_OPS_SET_POLICY(VENDOR_CMD_RAW_DATA)
 	},
 	{
 		{
@@ -545,7 +559,8 @@ static const struct wiphy_vendor_command
 		},
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_NETDEV,
-		.doit = mtk_cfg80211_vendor_set_roaming_policy
+		.doit = mtk_cfg80211_vendor_set_roaming_policy,
+		VENDOR_OPS_SET_POLICY(VENDOR_CMD_RAW_DATA)
 	},
 	{
 		{
@@ -554,7 +569,8 @@ static const struct wiphy_vendor_command
 		},
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_NETDEV,
-		.doit = mtk_cfg80211_vendor_get_roaming_capabilities
+		.doit = mtk_cfg80211_vendor_get_roaming_capabilities,
+		VENDOR_OPS_SET_POLICY(VENDOR_CMD_RAW_DATA)
 	},
 	{
 		{
@@ -563,7 +579,8 @@ static const struct wiphy_vendor_command
 		},
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_NETDEV,
-		.doit = mtk_cfg80211_vendor_config_roaming
+		.doit = mtk_cfg80211_vendor_config_roaming,
+		VENDOR_OPS_SET_POLICY(VENDOR_CMD_RAW_DATA)
 	},
 	{
 		{
@@ -572,7 +589,8 @@ static const struct wiphy_vendor_command
 		},
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_NETDEV,
-		.doit = mtk_cfg80211_vendor_enable_roaming
+		.doit = mtk_cfg80211_vendor_enable_roaming,
+		VENDOR_OPS_SET_POLICY(VENDOR_CMD_RAW_DATA)
 	},
 	/* RTT */
 	{
@@ -582,7 +600,8 @@ static const struct wiphy_vendor_command
 		},
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 		WIPHY_VENDOR_CMD_NEED_NETDEV,
-		.doit = mtk_cfg80211_vendor_get_rtt_capabilities
+		.doit = mtk_cfg80211_vendor_get_rtt_capabilities,
+		VENDOR_OPS_SET_POLICY(VENDOR_CMD_RAW_DATA)
 	},
 	/* Link Layer Statistics */
 	{
@@ -592,7 +611,8 @@ static const struct wiphy_vendor_command
 		},
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 		WIPHY_VENDOR_CMD_NEED_NETDEV,
-		.doit = mtk_cfg80211_vendor_llstats_get_info
+		.doit = mtk_cfg80211_vendor_llstats_get_info,
+		VENDOR_OPS_SET_POLICY(VENDOR_CMD_RAW_DATA)
 	},
 	/* RSSI Monitoring */
 	{
@@ -602,7 +622,8 @@ static const struct wiphy_vendor_command
 		},
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 		WIPHY_VENDOR_CMD_NEED_NETDEV,
-		.doit = mtk_cfg80211_vendor_set_rssi_monitoring
+		.doit = mtk_cfg80211_vendor_set_rssi_monitoring,
+		VENDOR_OPS_SET_POLICY(VENDOR_CMD_RAW_DATA)
 	},
 	/* Packet Keep Alive */
 	{
@@ -612,7 +633,8 @@ static const struct wiphy_vendor_command
 		},
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 		WIPHY_VENDOR_CMD_NEED_NETDEV,
-		.doit = mtk_cfg80211_vendor_packet_keep_alive_start
+		.doit = mtk_cfg80211_vendor_packet_keep_alive_start,
+		VENDOR_OPS_SET_POLICY(VENDOR_CMD_RAW_DATA)
 	},
 	{
 		{
@@ -621,7 +643,8 @@ static const struct wiphy_vendor_command
 		},
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 		WIPHY_VENDOR_CMD_NEED_NETDEV,
-		.doit = mtk_cfg80211_vendor_packet_keep_alive_stop
+		.doit = mtk_cfg80211_vendor_packet_keep_alive_stop,
+		VENDOR_OPS_SET_POLICY(VENDOR_CMD_RAW_DATA)
 	},
 	/* Get Driver Version or Firmware Version */
 	{
@@ -631,7 +654,8 @@ static const struct wiphy_vendor_command
 		},
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 				WIPHY_VENDOR_CMD_NEED_NETDEV,
-		.doit = mtk_cfg80211_vendor_get_version
+		.doit = mtk_cfg80211_vendor_get_version,
+		VENDOR_OPS_SET_POLICY(VENDOR_CMD_RAW_DATA)
 	},
 	/* Get Supported Feature Set */
 	{
@@ -641,7 +665,8 @@ static const struct wiphy_vendor_command
 		},
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 				WIPHY_VENDOR_CMD_NEED_NETDEV,
-		.doit = mtk_cfg80211_vendor_get_supported_feature_set
+		.doit = mtk_cfg80211_vendor_get_supported_feature_set,
+		VENDOR_OPS_SET_POLICY(VENDOR_CMD_RAW_DATA)
 	},
 	/* Set Tx Power Scenario */
 	{
@@ -651,7 +676,8 @@ static const struct wiphy_vendor_command
 		},
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 				WIPHY_VENDOR_CMD_NEED_NETDEV,
-		.doit = mtk_cfg80211_vendor_set_tx_power_scenario
+		.doit = mtk_cfg80211_vendor_set_tx_power_scenario,
+		VENDOR_OPS_SET_POLICY(VENDOR_CMD_RAW_DATA)
 	},
 #if CFG_SUPPORT_P2P_PREFERRED_FREQ_LIST
 	/* P2P get preferred freq list */
@@ -663,7 +689,8 @@ static const struct wiphy_vendor_command
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV
 				| WIPHY_VENDOR_CMD_NEED_NETDEV
 				| WIPHY_VENDOR_CMD_NEED_RUNNING,
-		.doit = mtk_cfg80211_vendor_get_preferred_freq_list
+		.doit = mtk_cfg80211_vendor_get_preferred_freq_list,
+		VENDOR_OPS_SET_POLICY(VENDOR_CMD_RAW_DATA)
 	},
 #endif /* CFG_SUPPORT_P2P_PREFERRED_FREQ_LIST */
 };
@@ -806,7 +833,14 @@ unsigned int _cfg80211_classify8021d(struct sk_buff *skb)
 }
 #endif
 
-#if KERNEL_VERSION(4, 19, 0) <= LINUX_VERSION_CODE
+#if KERNEL_VERSION(5, 2, 0) <= LINUX_VERSION_CODE
+u16 wlanSelectQueue(struct net_device *dev,
+		    struct sk_buff *skb,
+		    struct net_device *sb_dev)
+{
+	return mtk_wlan_ndev_select_queue(skb);
+}
+#elif KERNEL_VERSION(4, 19, 0) <= LINUX_VERSION_CODE
 u16 wlanSelectQueue(struct net_device *dev,
 		    struct sk_buff *skb,
 		    struct net_device *sb_dev, select_queue_fallback_t fallback)
@@ -1448,6 +1482,13 @@ static int wlanInit(struct net_device *prDev)
 	INIT_DELAYED_WORK(&sched_workq,
 			  wlanSchedScanStoppedWorkQueue);
 
+#if CFG_SUPPORT_CFG80211_AUTH
+#if CFG_SUPPORT_CFG80211_QUEUE
+	INIT_DELAYED_WORK(&cfg80211_workq,
+			wlanSchedCfg80211WorkQueue);
+#endif
+#endif
+
 	/* 20161024 init wow port setting */
 #if CFG_WOW_SUPPORT
 	kalWowInit(prGlueInfo);
@@ -1580,6 +1621,9 @@ static int wlanStop(struct net_device *prDev)
 	netif_tx_stop_all_queues(prDev);
 
 #if IS_ENABLED(CFG_RX_NAPI_SUPPORT)
+	DBGLOG(RX, INFO, "RX NAPI disable ongoing %s\n", prDev->name);
+	napi_synchronize(&prGlueInfo->rNapi);
+	napi_disable(&prGlueInfo->rNapi);
 	if (skb_queue_len(&prGlueInfo->rRxNapiSkbQ)) {
 
 		struct sk_buff *skb;
@@ -1590,7 +1634,7 @@ static int wlanStop(struct net_device *prDev)
 		while ((skb = skb_dequeue(&prGlueInfo->rRxNapiSkbQ)) != NULL)
 			kfree_skb(skb);
 	}
-	napi_disable(&prGlueInfo->rNapi);
+	DBGLOG(RX, INFO, "RX NAPI disabled %s\n", prDev->name);
 #endif /* CFG_RX_NAPI_SUPPORT */
 
 	return 0;		/* success */
@@ -2654,14 +2698,18 @@ void wlanGetParseConfig(struct ADAPTER *prAdapter)
 {
 	uint8_t *pucConfigBuf;
 	uint32_t u4ConfigReadLen;
-
+#if CFG_SUPPORT_MULTI_DONGLE
+#define WIFI_CFG_FN	"wifi_mt7663.cfg"
+#else
+#define WIFI_CFG_FN	"wifi.cfg"
+#endif
 	wlanCfgInit(prAdapter, NULL, 0, 0);
 	pucConfigBuf = (uint8_t *) kalMemAlloc(
 			       WLAN_CFG_FILE_BUF_SIZE, VIR_MEM_TYPE);
 	kalMemZero(pucConfigBuf, WLAN_CFG_FILE_BUF_SIZE);
 	u4ConfigReadLen = 0;
 	if (pucConfigBuf) {
-		if (kalRequestFirmware("wifi.cfg", pucConfigBuf,
+		if (kalRequestFirmware(WIFI_CFG_FN, pucConfigBuf,
 			   WLAN_CFG_FILE_BUF_SIZE, &u4ConfigReadLen,
 			   prAdapter->prGlueInfo->prDev) == 0) {
 			/* ToDo:: Nothing */
@@ -2704,7 +2752,11 @@ void wlanGetConfig(struct ADAPTER *prAdapter)
 {
 	uint8_t *pucConfigBuf;
 	uint32_t u4ConfigReadLen;
-
+#if CFG_SUPPORT_MULTI_DONGLE
+#define WIFI_CFG_FN	"wifi_mt7663.cfg"
+#else
+#define WIFI_CFG_FN	"wifi.cfg"
+#endif
 	wlanCfgInit(prAdapter, NULL, 0, 0);
 	pucConfigBuf = (uint8_t *) kalMemAlloc(
 			       WLAN_CFG_FILE_BUF_SIZE, VIR_MEM_TYPE);
@@ -2717,7 +2769,7 @@ void wlanGetConfig(struct ADAPTER *prAdapter)
 			   prAdapter->prGlueInfo->prDev) == 0) {
 		} else
 #endif
-		if (kalRequestFirmware("wifi.cfg", pucConfigBuf,
+		if (kalRequestFirmware(WIFI_CFG_FN, pucConfigBuf,
 			   WLAN_CFG_FILE_BUF_SIZE, &u4ConfigReadLen,
 			   prAdapter->prGlueInfo->prDev) == 0) {
 			/* ToDo:: Nothing */
@@ -3251,6 +3303,8 @@ static void consys_log_event_notification(int cmd, int value)
 	}
 }
 #endif
+
+
 
 /*----------------------------------------------------------------------------*/
 /*!
@@ -3793,8 +3847,10 @@ static int32_t wlanProbe(void *pvData, void *pvDriverData)
 		switch (eFailReason) {
 		case FAIL_MET_INIT_PROCFS:
 			kalMetRemoveProcfs();
+			/* FALLTHRU */
 		case PROC_INIT_FAIL:
 			wlanNetUnregister(prWdev);
+			/* FALLTHRU */
 		case NET_REGISTER_FAIL:
 			set_bit(GLUE_FLAG_HALT_BIT, &prGlueInfo->ulFlag);
 			/* wake up main thread */
@@ -3939,6 +3995,13 @@ static void wlanRemove(void)
 
 	flush_delayed_work(&sched_workq);
 
+#if CFG_SUPPORT_CFG80211_AUTH
+#if CFG_SUPPORT_CFG80211_QUEUE
+	flush_delayed_work(&cfg80211_workq);
+#endif
+#endif
+
+
 	down(&g_halt_sem);
 	g_u4HaltFlag = 1;
 	up(&g_halt_sem);
@@ -4059,6 +4122,7 @@ static void wlanRemove(void)
 #if CFG_CHIP_RESET_SUPPORT & !CFG_WMT_RESET_API_SUPPORT
 	fgIsResetting = FALSE;
 #endif
+
 #if CFG_THERMAL_API_SUPPORT
 	g_fgIsWifiEnabled = FALSE;
 	wcn_export_platform_bridge_unregister();
@@ -4146,6 +4210,11 @@ static int initWlan(void)
 	kalSetEmiMpuProtection(gConEmiPhyBase, WIFI_EMI_MEM_OFFSET,
 			       WIFI_EMI_MEM_SIZE, true);
 #endif
+
+#if CFG_POWER_OFF_CTRL_SUPPORT
+	wlanRegisterRebootNotifier();
+#endif
+
 	return ret;
 }				/* end of initWlan() */
 
@@ -4171,18 +4240,68 @@ static void exitWlan(void)
 	/* free pre-allocated memory */
 	kalUninitIOBuffer();
 
-	/* For single wiphy case, it's hardly to free wdev & wiphy in 2 func.
-	 * So that, use wlanDestroyAllWdev to replace wlanDestroyWirelessDevice
-	 * and glP2pDestroyWirelessDevice.
-	 */
 	wlanDestroyAllWdev();
 
 #if WLAN_INCLUDE_PROC
 	procUninitProcFs();
 #endif
+#if CFG_POWER_OFF_CTRL_SUPPORT
+	wlanUnregisterRebootNotifier();
+#endif
 	DBGLOG(INIT, INFO, "exitWlan\n");
 
 }				/* end of exitWlan() */
+
+#if CFG_POWER_OFF_CTRL_SUPPORT
+static int wf_pdwnc_notify(struct notifier_block *nb,
+		unsigned long event, void *unused)
+{
+	if (event == SYS_RESTART) {
+		DBGLOG(HAL, STATE, "wf_pdwnc_notify()\n");
+		kalFbNotifierUnReg();
+#if CFG_CHIP_RESET_SUPPORT
+		glResetUninit();
+#endif
+
+		glUnregisterBus(wlanRemove);
+
+		/* free pre-allocated memory */
+		kalUninitIOBuffer();
+
+		wlanDestroyAllWdev();
+
+#if WLAN_INCLUDE_PROC
+		procUninitProcFs();
+#endif
+#if CFG_POWER_OFF_CTRL_SUPPORT
+		wlanUnregisterRebootNotifier();
+#endif
+		DBGLOG(HAL, STATE, "wf_pdwnc_notify() done\n");
+	}
+	return 0;
+}
+
+static struct notifier_block wf_pdwnc_notifier = {
+	.notifier_call = wf_pdwnc_notify,
+	.next = NULL,
+	.priority = 0,
+};
+
+void wlanRegisterRebootNotifier(void)
+{
+	DBGLOG(HAL, STATE, "wlanRegisterRebootNotifier()\n");
+	register_reboot_notifier(&wf_pdwnc_notifier);
+	DBGLOG(HAL, STATE, "wlanRegisterRebootNotifier() done\n");
+}
+
+void wlanUnregisterRebootNotifier(void)
+{
+	DBGLOG(HAL, STATE, "wlanUnregisterRebootNotifier()\n");
+	unregister_reboot_notifier(&wf_pdwnc_notifier);
+	DBGLOG(HAL, STATE, "wlanUnregisterRebootNotifier() done\n");
+}
+
+#endif
 
 #if CFG_THERMAL_API_SUPPORT
 

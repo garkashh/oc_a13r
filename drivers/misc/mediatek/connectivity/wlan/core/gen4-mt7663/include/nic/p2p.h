@@ -267,6 +267,21 @@ struct P2P_CONNECTION_SETTINGS {
 #if CFG_SUPPORT_HOTSPOT_WPS_MANAGER
 	u_int8_t fgIsWPSMode;
 #endif
+
+	uint8_t ucSSIDLen;
+	uint8_t aucSSID[ELEM_MAX_LEN_SSID];
+#if CFG_SUPPORT_CFG80211_AUTH
+	struct cfg80211_bss *bss;
+	u_int8_t fgIsSendAssoc;
+	u_int8_t ucAuthDataLen;
+	u_int8_t aucAuthData[AUTH_DATA_MAX_LEN];
+	/* Additional elements for Authentication frame,
+	 * starts with transaction sequence number field
+	 */
+	/* Temp assign a fixed large length AUTH_DATA_MAX_LEN */
+	u_int8_t ucChannelNum;
+	uint8_t  ucRoleIdx;
+#endif
 };
 
 struct NOA_TIMING {

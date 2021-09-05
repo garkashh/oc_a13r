@@ -215,6 +215,31 @@ halRxWaitResponse(IN struct ADAPTER *prAdapter, IN uint8_t ucPortIdx, OUT uint8_
 	u4Time = (uint32_t) kalGetTimeTick();
 
 	do {
+		HAL_MCR_RD(prAdapter, MCR_WHISR, &u4Value);
+		if (!(u4Value & (WHISR_RX0_DONE_INT | WHISR_RX1_DONE_INT))) {
+			/* timeout exceeding check */
+			u4Current = (uint32_t) kalGetTimeTick();
+
+			if ((u4Current > u4Time) && ((u4Current - u4Time)
+				> RX_RESPONSE_TIMEOUT)) {
+
+				DBGLOG(RX, ERROR, "Timeout! %d - %d = %d\n",
+				u4Current, u4Time, (u4Current-u4Time));
+				return WLAN_STATUS_FAILURE;
+			} else if (u4Current < u4Time &&
+				((u4Current + (0xFFFFFFFF - u4Time))
+				> RX_RESPONSE_TIMEOUT)) {
+
+				DBGLOG(RX, ERROR, "Timeout! %d - %d = %d\n",
+					u4Current, u4Time,
+					(u4Current + (0xFFFFFFFF - u4Time)));
+				return WLAN_STATUS_FAILURE;
+			}
+			/* Response packet is not ready */
+			kalUdelay(50);
+
+			continue;
+		}
 		/* Read the packet length */
 		HAL_MCR_RD(prAdapter, MCR_WRPLR, &u4Value);
 
@@ -236,26 +261,20 @@ halRxWaitResponse(IN struct ADAPTER *prAdapter, IN uint8_t ucPortIdx, OUT uint8_
 			DBGLOG_MEM8(RX, ERROR, pucRspBuffer, u4MaxRespBufferLen);
 			return WLAN_STATUS_FAILURE;
 		}
-
 		if (u4PktLen == 0) {
-			/* timeout exceeding check */
-			u4Current = (uint32_t) kalGetTimeTick();
-
-			if ((u4Current > u4Time) && ((u4Current - u4Time) > RX_RESPONSE_TIMEOUT)) {
-				DBGLOG(RX, ERROR, "Timeout! %d - %d = %d\n", u4Current, u4Time, (u4Current-u4Time));
-				return WLAN_STATUS_FAILURE;
-			} else if (u4Current < u4Time && ((u4Current + (0xFFFFFFFF - u4Time)) > RX_RESPONSE_TIMEOUT)) {
-				DBGLOG(RX, ERROR, "Timeout! %d - %d = %d\n",
-					u4Current, u4Time, (u4Current + (0xFFFFFFFF - u4Time)));
-				return WLAN_STATUS_FAILURE;
-			}
-
-			/* Response packet is not ready */
-			kalUdelay(50);
+			DBGLOG(RX, ERROR, "Packet length is 0!!\n");
+			return WLAN_STATUS_FAILURE;
 		} else {
 
 #if (CFG_ENABLE_READ_EXTRA_4_BYTES == 1)
 #if CFG_SDIO_RX_AGG
+			/* If rx enhanced mode is enabled, need to read
+			 * enhanced mode information even if don't need this,
+			 * because hw will error.
+			 */
+#if CFG_SDIO_RX_ENHANCE
+			u4PktLen += sizeof(struct ENHANCE_MODE_DATA_STRUCT);
+#endif
 			/* decide copy length */
 			if (u4PktLen > u4MaxRespBufferLen)
 				u4CpyLen = u4MaxRespBufferLen;

@@ -4005,6 +4005,11 @@ kalReadyOnChannel(IN P_GLUE_INFO_T prGlueInfo,
 			break;
 		}
 
+		if (!prChannel) {
+			DBGLOG(AIS, ERROR, "prChannel is NULL, return!");
+			return;
+		}
+
 		cfg80211_ready_on_channel(prGlueInfo->prDevHandler->ieee80211_ptr, u8Cookie, prChannel, u4DurationMs,
 					  GFP_KERNEL);
 	}
@@ -4059,6 +4064,11 @@ kalRemainOnChannelExpired(IN P_GLUE_INFO_T prGlueInfo,
 		default:
 			rChannelType = NL80211_CHAN_HT20;
 			break;
+		}
+
+		if (!prChannel) {
+			DBGLOG(AIS, ERROR, "prChannel is NULL, return!");
+			return;
 		}
 
 		cfg80211_remain_on_channel_expired(prGlueInfo->prDevHandler->ieee80211_ptr, u8Cookie, prChannel,
@@ -5135,8 +5145,12 @@ void kalScanParseRandomMac(
 	uint8_t ucMacAddr[MAC_ADDR_LEN];
 	uint8_t ucMacAddrMask[MAC_ADDR_LEN];
 
-	ASSERT(request);
-	ASSERT(pucRandomMac);
+	if (!request || !pucRandomMac) {
+		DBGLOG(SCN, WARN,
+			"kalScanParseRandomMac, NULL check (0x%x 0x%x)!\n",
+			request, pucRandomMac);
+		return;
+	}
 
 	if (!(request->flags & NL80211_SCAN_FLAG_RANDOM_ADDR)) {
 		DBGLOG(SCN, TRACE, "Scan random mac is not set\n");
@@ -5166,8 +5180,11 @@ BOOLEAN kalSchedScanParseRandomMac(
 {
 	uint8_t ucMacAddr[MAC_ADDR_LEN];
 
-	ASSERT(request);
 	ASSERT(pucRandomMac);
+	if (!request) {
+		DBGLOG(SCN, WARN, "kalScanParseRandomMac, request is NULL!\n");
+		return FALSE;
+	}
 
 	if (!(request->flags & NL80211_SCAN_FLAG_RANDOM_ADDR)) {
 		DBGLOG(SCN, TRACE, "Scan random mac is not set\n");
@@ -5196,3 +5213,27 @@ BOOLEAN kalSchedScanParseRandomMac(const struct net_device *ndev,
 }
 
 #endif
+
+int _kalSnprintf(char *buf, size_t size, const char *fmt, ...)
+{
+	int retval;
+	va_list ap;
+
+	va_start(ap, fmt);
+	retval = vsnprintf(buf, size, fmt, ap);
+	va_end(ap);
+	return (retval < 0)?(0):(retval);
+}
+
+int _kalSprintf(char *buf, const char *fmt, ...)
+{
+	int retval;
+	va_list ap;
+
+	va_start(ap, fmt);
+	retval = vsprintf(buf, fmt, ap);
+	va_end(ap);
+	return (retval < 0)?(0):(retval);
+}
+
+

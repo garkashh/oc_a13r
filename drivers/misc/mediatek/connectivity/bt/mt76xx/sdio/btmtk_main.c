@@ -88,7 +88,7 @@ static void btmtk_init_adapter(struct btmtk_private *priv)
 	priv->adapter->hw_regs_buf = kzalloc(buf_size, GFP_KERNEL);
 	if (!priv->adapter->hw_regs_buf) {
 		priv->adapter->hw_regs = NULL;
-		BTMTK_ERR("Unable to allocate buffer for hw_regs.");
+		BTMTK_ERR("Unable to allocate buffer for h/w_regs.");
 	} else {
 		priv->adapter->hw_regs =
 			(u8 *)ALIGN_ADDR(priv->adapter->hw_regs_buf,
@@ -140,7 +140,7 @@ static int btmtk_service_main_thread(void *data)
 		if (probe_ready)
 			break;
 
-		BTMTK_INFO("probe_ready %d delay 10ms~15ms", probe_ready);
+		/* BTMTK_INFO("probe_ready %d delay 10ms~15ms", probe_ready);*/
 		usleep_range(10*1000, 15*1000);
 
 		if (i == 1000) {
@@ -204,9 +204,6 @@ static int btmtk_service_main_thread(void *data)
 			} else {
 				if (ret) {
 					BTMTK_ERR("btmtk_sdio_reset_dongle return %d, error", ret);
-					break;
-				} else {
-					BTMTK_INFO("hw reset dongle done");
 					break;
 				}
 			}

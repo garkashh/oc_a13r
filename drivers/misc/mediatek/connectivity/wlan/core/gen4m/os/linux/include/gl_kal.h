@@ -136,7 +136,9 @@ extern struct delayed_work sched_workq;
 	(GLUE_FLAG_HALT | GLUE_FLAG_INT | GLUE_FLAG_HIF_TX | \
 	GLUE_FLAG_HIF_TX_CMD | GLUE_FLAG_HIF_FW_OWN | \
 	GLUE_FLAG_HIF_PRT_HIF_DBG_INFO | \
-	GLUE_FLAG_UPDATE_WMM_QUOTA)
+	GLUE_FLAG_UPDATE_WMM_QUOTA | \
+	GLUE_FLAG_NOTIFY_MD_CRASH | \
+	GLUE_FLAG_DRV_INT)
 
 #define GLUE_FLAG_RX_PROCESS (GLUE_FLAG_HALT | GLUE_FLAG_RX_TO_OS)
 #else
@@ -262,6 +264,9 @@ enum ENUM_SPIN_LOCK_CATEGORY_E {
 
 	SPIN_LOCK_EHPI_BUS,	/* only for EHPI */
 	SPIN_LOCK_NET_DEV,
+
+	SPIN_LOCK_BSSLIST_FW,
+	SPIN_LOCK_BSSLIST_CFG,
 	SPIN_LOCK_NUM
 };
 
@@ -1492,7 +1497,11 @@ void kalSetSerTimeoutEvent(struct GLUE_INFO *pr);
 
 void kalSetIntEvent(struct GLUE_INFO *pr);
 
+void kalSetDrvIntEvent(struct GLUE_INFO *pr);
+
 void kalSetWmmUpdateEvent(struct GLUE_INFO *pr);
+
+void kalSetMdCrashEvent(struct GLUE_INFO *pr);
 
 void kalSetHifDbgEvent(struct GLUE_INFO *pr);
 
@@ -1825,6 +1834,8 @@ void tracing_mark_write(const char *fmt, ...);
 void kal_do_gettimeofday(struct timeval *tv);
 #endif
 
+uint32_t kalSetSuspendFlagToEMI(IN struct ADAPTER
+	*prAdapter, IN u_int8_t fgSuspend);
 
 #endif /* _GL_KAL_H */
 

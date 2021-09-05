@@ -1225,7 +1225,11 @@ void p2pSetMulticastListWorkQueueWrapper(struct GLUE_INFO
 
 struct GLUE_INFO *wlanGetGlueInfo(void);
 
-#if KERNEL_VERSION(4, 19, 0) <= LINUX_VERSION_CODE
+#if KERNEL_VERSION(5, 2, 0) <= LINUX_VERSION_CODE
+u16 wlanSelectQueue(struct net_device *dev,
+		    struct sk_buff *skb,
+		    struct net_device *sb_dev);
+#elif KERNEL_VERSION(4, 19, 0) <= LINUX_VERSION_CODE
 u16 wlanSelectQueue(struct net_device *dev,
 		    struct sk_buff *skb, struct net_device *sb_dev,
 		    select_queue_fallback_t fallback);
@@ -1276,6 +1280,10 @@ extern char *gprifnamesta;
 
 extern void wlanRegisterNotifier(void);
 extern void wlanUnregisterNotifier(void);
+#if CFG_POWER_OFF_CTRL_SUPPORT
+extern void wlanRegisterRebootNotifier(void);
+extern void wlanUnregisterRebootNotifier(void);
+#endif
 #if CFG_MTK_ANDROID_WMT
 typedef int (*set_p2p_mode) (struct net_device *netdev,
 			     struct PARAM_CUSTOM_P2P_SET_STRUCT p2pmode);

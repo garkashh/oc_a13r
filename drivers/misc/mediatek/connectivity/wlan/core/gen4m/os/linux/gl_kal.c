@@ -1108,6 +1108,7 @@ uint32_t kalRxIndicateOnePkt(IN struct GLUE_INFO
 	prSkb = pvPkt;
 	prChipInfo = prGlueInfo->prAdapter->chip_info;
 	ucBssIdx = GLUE_GET_PKT_BSS_IDX(prSkb);
+	RX_INC_CNT(&prGlueInfo->prAdapter->rRxCtrl, RX_DATA_INDICATION_COUNT);
 #if DBG && 0
 	do {
 		uint8_t *pu4Head = (uint8_t *) &prSkb->cb[0];
@@ -1190,7 +1191,7 @@ uint32_t kalRxIndicateOnePkt(IN struct GLUE_INFO
 #endif
 
 #if (CFG_SUPPORT_STATISTICS == 1)
-	StatsEnvRxTime2Host(prGlueInfo->prAdapter, prSkb);
+	StatsEnvRxTime2Host(prGlueInfo->prAdapter, prSkb, prNetDev);
 #endif
 
 #if KERNEL_VERSION(4, 11, 0) <= CFG80211_VERSION_CODE
@@ -1260,9 +1261,7 @@ uint32_t kalRxIndicateOnePkt(IN struct GLUE_INFO
 		kal_skb_reset_mac_len(prSkb);
 	}
 
-	kalTraceEvent("Rx id=0x%04x sn=%d",
-		GLUE_GET_PKT_IP_ID(prSkb),
-		GLUE_GET_PKT_SEQ_NO(prSkb));
+	kalTraceEvent("Rx ipid=0x%04x", GLUE_GET_PKT_IP_ID(prSkb));
 
 #if CFG_SUPPORT_RX_GRO
 	if (ucBssIdx < MAX_BSSID_NUM &&
@@ -1876,6 +1875,45 @@ kalIndicateStatusAndComplete(IN struct GLUE_INFO
 			aisGetTargetBssDesc(prAdapter, ucBssIndex);
 		struct CONNECTION_SETTINGS *prConnSettings =
 			aisGetConnSettings(prAdapter, ucBssIndex);
+		struct GL_WPA_INFO *prWpaInfo =
+			aisGetWpaInfo(prAdapter, ucBssIndex);
+		struct BSS_INFO *prBssInfo =
+			aisGetAisBssInfo(prAdapter, ucBssIndex);
+
+		/* Make sure we remove all WEP key */
+		if (prWpaInfo && prWpaInfo->u4WpaVersion ==
+			IW_AUTH_WPA_VERSION_DISABLED
+			&& prBssInfo && prBssInfo->wepkeyWlanIdx < WTBL_SIZE) {
+			uint32_t keyId;
+			uint32_t u4SetLen;
+			struct PARAM_REMOVE_KEY rRemoveKey;
+
+			for (keyId = 0; keyId <= 3; keyId++) {
+				if (!prBssInfo->wepkeyUsed[keyId])
+					continue;
+
+				rRemoveKey.u4Length =
+					sizeof(struct PARAM_REMOVE_KEY);
+				rRemoveKey.u4KeyIndex = keyId;
+				rRemoveKey.ucBssIdx = ucBssIndex;
+				if (prBssDesc)
+					kalMemCopy(rRemoveKey.arBSSID,
+						prBssDesc->aucBSSID,
+						MAC_ADDR_LEN);
+				else
+					kalMemCopy(rRemoveKey.arBSSID,
+						prConnSettings->aucBSSIDHint,
+						MAC_ADDR_LEN);
+				DBGLOG(INIT, INFO,
+					"JOIN Failure: remove WEP wlanidx: %d, keyid: %d",
+					prBssInfo->wepkeyWlanIdx,
+					rRemoveKey.u4KeyIndex);
+				wlanoidSetRemoveKey(prAdapter,
+					(void *)&rRemoveKey,
+					sizeof(struct PARAM_REMOVE_KEY),
+					&u4SetLen);
+			}
+		}
 
 		if (prBssDesc) {
 			DBGLOG(INIT, INFO, "JOIN Failure: u2JoinStatus=%d",
@@ -3852,6 +3890,7 @@ int hif_thread(void *data)
 					 netdev_priv(dev));
 	struct ADAPTER *prAdapter = prGlueInfo->prAdapter;
 	int ret = 0;
+	bool fgEnInt;
 #if defined(CONFIG_ANDROID) && (CFG_ENABLE_WAKE_LOCK)
 	KAL_WAKE_LOCK_T *prHifThreadWakeLock;
 
@@ -3912,7 +3951,10 @@ int hif_thread(void *data)
 		wlanAcquirePowerControl(prAdapter);
 
 		/* Handle Interrupt */
+		fgEnInt = (prGlueInfo->ulFlag | GLUE_FLAG_INT_BIT) != 0;
 		if (test_and_clear_bit(GLUE_FLAG_INT_BIT,
+				       &prGlueInfo->ulFlag) ||
+		    test_and_clear_bit(GLUE_FLAG_DRV_INT_BIT,
 				       &prGlueInfo->ulFlag)) {
 			kalTraceBegin("INT");
 			/* the Wi-Fi interrupt is already disabled in mmc
@@ -3929,7 +3971,7 @@ int hif_thread(void *data)
 			} else {
 				/* DBGLOG(INIT, INFO, ("HIF Interrupt!\n")); */
 				prGlueInfo->TaskIsrCnt++;
-				wlanIST(prAdapter);
+				wlanIST(prAdapter, fgEnInt);
 			}
 			kalTraceEnd();
 		}
@@ -3957,6 +3999,11 @@ int hif_thread(void *data)
 		if (test_and_clear_bit(GLUE_FLAG_UPDATE_WMM_QUOTA_BIT,
 					&prGlueInfo->ulFlag))
 			TRACE(halUpdateTxMaxQuota(prAdapter), "UPDATE_WMM");
+
+		/* Notify MD crash to FW */
+		if (test_and_clear_bit(GLUE_FLAG_NOTIFY_MD_CRASH_BIT,
+					&prGlueInfo->ulFlag))
+			halNotifyMdCrash(prAdapter);
 
 		/* Set FW own */
 		if (test_and_clear_bit(GLUE_FLAG_HIF_FW_OWN_BIT,
@@ -4314,7 +4361,7 @@ int main_thread(void *data)
 					"ignore pending interrupt\n");
 			} else {
 				prGlueInfo->TaskIsrCnt++;
-				wlanIST(prGlueInfo->prAdapter);
+				wlanIST(prGlueInfo->prAdapter, true);
 			}
 			kalTraceEnd();
 		}
@@ -5058,9 +5105,31 @@ void kalSetIntEvent(struct GLUE_INFO *pr)
 #endif
 }
 
+void kalSetDrvIntEvent(struct GLUE_INFO *pr)
+{
+	KAL_WAKE_LOCK(pr->prAdapter, pr->rIntrWakeLock);
+
+	set_bit(GLUE_FLAG_DRV_INT_BIT, &pr->ulFlag);
+
+	/* when we got interrupt, we wake up servie thread */
+#if CFG_SUPPORT_MULTITHREAD
+	wake_up_interruptible(&pr->waitq_hif);
+#else
+	wake_up_interruptible(&pr->waitq);
+#endif
+}
+
 void kalSetWmmUpdateEvent(struct GLUE_INFO *pr)
 {
 	set_bit(GLUE_FLAG_UPDATE_WMM_QUOTA_BIT, &pr->ulFlag);
+#if CFG_SUPPORT_MULTITHREAD
+	wake_up_interruptible(&pr->waitq_hif);
+#endif
+}
+
+void kalSetMdCrashEvent(struct GLUE_INFO *pr)
+{
+	set_bit(GLUE_FLAG_NOTIFY_MD_CRASH_BIT, &pr->ulFlag);
 #if CFG_SUPPORT_MULTITHREAD
 	wake_up_interruptible(&pr->waitq_hif);
 #endif
@@ -7386,7 +7455,7 @@ inline int32_t kalPerMonInit(IN struct GLUE_INFO
 				TIMER_WAKELOCK_NONE);
 
 	/* sync data with netdev */
-	GET_CURRENT_SYSTIME(&prPerMonitor->rLastUpdateTime);
+	GET_BOOT_SYSTIME(&prPerMonitor->rLastUpdateTime);
 	for (i = 0; i < BSS_DEFAULT_NUM; i++) {
 		prDevHandler = wlanGetNetDev(prGlueInfo, i);
 		if (prDevHandler) {
@@ -7551,7 +7620,7 @@ static uint32_t kalPerMonUpdate(IN struct ADAPTER *prAdapter)
 	char *pos = NULL, *end = NULL;
 	uint32_t slen;
 
-	GET_CURRENT_SYSTIME(&now);
+	GET_BOOT_SYSTIME(&now);
 	last = perf->rLastUpdateTime;
 
 	if (!KAL_TEST_BIT(PERF_MON_INIT_BIT, perf->ulPerfMonFlag) ||
@@ -7600,9 +7669,14 @@ static uint32_t kalPerMonUpdate(IN struct ADAPTER *prAdapter)
 		if (txDiffBytes[i] < 0 || rxDiffBytes[i] < 0) {
 			/* overflow should not happen */
 			DBGLOG(SW4, WARN,
-				"[i]wrong bytes: tx[%lu][%ld][%ld], rx[%lu][%ld][%ld],\n",
-				i, currentTxBytes, lastTxBytes, txDiffBytes[i],
-				currentRxBytes, lastRxBytes, rxDiffBytes[i]);
+				"[i]wrong bytes: tx[%llu][%lld][%lld], rx[%llu][%lld][%lld],\n",
+				i,
+				(unsigned long long) currentTxBytes,
+				(long long) lastTxBytes,
+				(long long) txDiffBytes[i],
+				(unsigned long long) currentRxBytes,
+				(long long) lastRxBytes,
+				(long long) rxDiffBytes[i]);
 			goto fail;
 		}
 
@@ -7619,16 +7693,16 @@ static uint32_t kalPerMonUpdate(IN struct ADAPTER *prAdapter)
 
 	/* The length should include
 	 * 1. "[%ld:%ld:%ld:%ld]" for each bss, %ld range is
-	 *    [-2147483647, +2147483647]
+	 *    [-9223372036854775807, +9223372036854775807]
 	 * 2. "[%d:...:%d]" for pending frame num, %d range is [-32767, 32767]
 	 * 3. "[%u]" for each TX ring, %u range is [0, 65536]
 	 * 4. ["%lu:%lu:%lu:%lu] dropped packets by each ndev, "%lu" range is
-	 *    [0, 4294967295]
+	 *    [0, 18446744073709551615]
 	 */
-	slen = (11 * 4 + 5) * BSS_DEFAULT_NUM + 1 +
+	slen = (20 * 4 + 5) * BSS_DEFAULT_NUM + 1 +
 	       (6 * CFG_MAX_TXQ_NUM + 2 - 1) * MAX_BSSID_NUM + 1 +
 	       (5 + 2) * NUM_OF_TX_RING + 1 +
-	       (10 * 4 + 5) * BSS_DEFAULT_NUM + 1;
+	       (20 * 4 + 5) * BSS_DEFAULT_NUM + 1;
 	pos = buf = kalMemAlloc(slen, VIR_MEM_TYPE);
 	if (pos == NULL) {
 		DBGLOG(SW4, INFO, "Can't allocate memory\n");
@@ -7638,9 +7712,11 @@ static uint32_t kalPerMonUpdate(IN struct ADAPTER *prAdapter)
 	end = buf + slen;
 	head1 = pos;
 	for (i = 0; i < BSS_DEFAULT_NUM; ++i) {
-		pos += kalSnprintf(pos, end - pos, "[%ld:%ld:%ld:%ld]",
-			txDiffBytes[i], txDiffPkts[i],
-			rxDiffBytes[i], rxDiffPkts[i]);
+		pos += kalSnprintf(pos, end - pos, "[%lld:%lld:%lld:%lld]",
+			(long long) txDiffBytes[i],
+			(long long) txDiffPkts[i],
+			(long long) rxDiffBytes[i],
+			(long long) rxDiffPkts[i]);
 	}
 	pos++;
 	head2 = pos;
@@ -7664,33 +7740,67 @@ static uint32_t kalPerMonUpdate(IN struct ADAPTER *prAdapter)
 	for (i = 0; i < BSS_DEFAULT_NUM; ++i) {
 		ndev = wlanGetNetDev(glue, i);
 		if (ndev) {
-			pos += kalSnprintf(pos, end - pos, "[%lu:%lu:%lu:%lu]",
-				ndev->stats.tx_dropped,
-				atomic_long_read(&ndev->tx_dropped),
-				ndev->stats.rx_dropped,
-				atomic_long_read(&ndev->rx_dropped));
+			pos += kalSnprintf(pos, end - pos,
+				"[%llu:%llu:%llu:%llu]",
+				(unsigned long long) ndev->stats.tx_dropped,
+				(unsigned long long)
+					atomic_long_read(&ndev->tx_dropped),
+				(unsigned long long) ndev->stats.rx_dropped,
+				(unsigned long long)
+					atomic_long_read(&ndev->rx_dropped));
 		}
 	}
 
 #define TEMP_LOG_TEMPLATE \
-	"<%dms> Tput: %llu(%lu.%03lumbps) %s Pending: %d/%d %s Used: " \
-	"%u/%d/%d %s LQ[%lu:%lu:%lu] Drop: %s lv:%u th:%u fg:0x%lx\n"
+	"<%dms> Tput: %llu(%llu.%03llumbps) %s Pending:%d/%d %s Used:" \
+	"%u/%d/%d %s LQ[%llu:%llu:%llu] lv:%u th:%u fg:0x%lx\n"
 	DBGLOG(SW4, INFO, TEMP_LOG_TEMPLATE,
-		period,	perf->ulThroughput,
-		(unsigned long) (perf->ulThroughput >> 20),
-		(unsigned long) ((perf->ulThroughput >> 10) & BITS(0, 9)),
+		period,	(unsigned long long) perf->ulThroughput,
+		(unsigned long long) (perf->ulThroughput >> 20),
+		(unsigned long long) ((perf->ulThroughput >> 10) & BITS(0, 9)),
 		head1, GLUE_GET_REF_CNT(glue->i4TxPendingFrameNum),
 		prAdapter->rWifiVar.u4NetifStopTh, head2,
 		hif->rTokenInfo.u4UsedCnt, HIF_TX_MSDU_TOKEN_NUM,
-		TX_RING_SIZE, head3, lq->u8TxTotalCount, lq->u8RxTotalCount,
-		lq->u8DiffIdleSlotCount, head4, perf->u4CurrPerfLevel,
+		TX_RING_SIZE, head3,
+		(unsigned long long) lq->u8TxTotalCount,
+		(unsigned long long) lq->u8RxTotalCount,
+		(unsigned long long) lq->u8DiffIdleSlotCount,
+		perf->u4CurrPerfLevel,
 		prAdapter->rWifiVar.u4BoostCpuTh,
 		perf->ulPerfMonFlag);
 #undef TEMP_LOG_TEMPLATE
+#define TEMP_LOG_TEMPLATE \
+	"ndevdrp:%s drv[RM,RI,RT,RM,RW,RA,RB,DT,NS,IB,HS,LS,DD,ME,BD,NI," \
+	"DR,TE,CE,DN]:%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu," \
+	"%lu,%lu,%lu,%lu,%lu,%lu,%lu\n"
+	DBGLOG(SW4, INFO, TEMP_LOG_TEMPLATE,
+		head4,
+		RX_GET_CNT(&prAdapter->rRxCtrl, RX_MPDU_TOTAL_COUNT),
+		RX_GET_CNT(&prAdapter->rRxCtrl, RX_DATA_INDICATION_COUNT),
+		RX_GET_CNT(&prAdapter->rRxCtrl,	RX_DATA_REORDER_TOTAL_COUNT),
+		RX_GET_CNT(&prAdapter->rRxCtrl,	RX_DATA_REORDER_MISS_COUNT),
+		RX_GET_CNT(&prAdapter->rRxCtrl,	RX_DATA_REORDER_WITHIN_COUNT),
+		RX_GET_CNT(&prAdapter->rRxCtrl, RX_DATA_REORDER_AHEAD_COUNT),
+		RX_GET_CNT(&prAdapter->rRxCtrl,	RX_DATA_REORDER_BEHIND_COUNT),
+		RX_GET_CNT(&prAdapter->rRxCtrl, RX_DROP_TOTAL_COUNT),
+		RX_GET_CNT(&prAdapter->rRxCtrl, RX_NO_STA_DROP_COUNT),
+		RX_GET_CNT(&prAdapter->rRxCtrl, RX_INACTIVE_BSS_DROP_COUNT),
+		RX_GET_CNT(&prAdapter->rRxCtrl, RX_HS20_DROP_COUNT),
+		RX_GET_CNT(&prAdapter->rRxCtrl, RX_LESS_SW_RFB_DROP_COUNT),
+		RX_GET_CNT(&prAdapter->rRxCtrl, RX_DUPICATE_DROP_COUNT),
+		RX_GET_CNT(&prAdapter->rRxCtrl, RX_MIC_ERROR_DROP_COUNT),
+		RX_GET_CNT(&prAdapter->rRxCtrl, RX_BAR_DROP_COUNT),
+		RX_GET_CNT(&prAdapter->rRxCtrl, RX_NO_INTEREST_DROP_COUNT),
+		RX_GET_CNT(&prAdapter->rRxCtrl, RX_REORDER_BEHIND_DROP_COUNT),
+		RX_GET_CNT(&prAdapter->rRxCtrl, RX_TYPE_ERR_DROP_COUNT),
+		RX_GET_CNT(&prAdapter->rRxCtrl, RX_CLASS_ERR_DROP_COUNT),
+		RX_GET_CNT(&prAdapter->rRxCtrl, RX_DST_NULL_DROP_COUNT));
+#undef TEMP_LOG_TEMPLATE
 
-	kalTraceEvent("Tput: %lu.%03lumbps",
-		(unsigned long) (perf->ulThroughput >> 20),
-		(unsigned long) ((perf->ulThroughput >> 10) & BITS(0, 9)));
+	kalTraceEvent("Tput: %llu.%03llumbps",
+		(unsigned long long) (perf->ulThroughput >> 20),
+		(unsigned long long) ((perf->ulThroughput >> 10) & BITS(0, 9)));
+
 	kalMemFree(buf, VIR_MEM_TYPE, slen);
 	return WLAN_STATUS_SUCCESS;
 fail:
@@ -8221,7 +8331,7 @@ u_int8_t kalScanParseRandomMac(const struct net_device *ndev,
 		if (kalIsValidMacAddr(request->bssid)) {
 			COPY_MAC_ADDR(pucRandomMac, request->bssid);
 			log_dbg(SCN, INFO, "random mac=" MACSTR "\n",
-				pucRandomMac);
+				MAC2STR(pucRandomMac));
 			return TRUE;
 		}
 	}
@@ -8332,20 +8442,28 @@ void kalScanReqLog(struct cfg80211_scan_request *request)
 
 void kalScanResultLog(struct ADAPTER *prAdapter, struct ieee80211_mgmt *mgmt)
 {
+	KAL_SPIN_LOCK_DECLARATION();
+
+	KAL_ACQUIRE_SPIN_LOCK(prAdapter, SPIN_LOCK_BSSLIST_CFG);
 	scanLogCacheAddBSS(
 		&(prAdapter->rWifiVar.rScanInfo.rScanLogCache.rBSSListCFG),
 		prAdapter->rWifiVar.rScanInfo.rScanLogCache.arBSSListBufCFG,
 		LOG_SCAN_RESULT_D2K,
 		mgmt->bssid,
 		mgmt->seq_ctrl);
+	KAL_RELEASE_SPIN_LOCK(prAdapter, SPIN_LOCK_BSSLIST_CFG);
 }
 
 void kalScanLogCacheFlushBSS(struct ADAPTER *prAdapter,
 	const uint16_t logBufLen)
 {
+	KAL_SPIN_LOCK_DECLARATION();
+
+	KAL_ACQUIRE_SPIN_LOCK(prAdapter, SPIN_LOCK_BSSLIST_CFG);
 	scanLogCacheFlushBSS(
 		&(prAdapter->rWifiVar.rScanInfo.rScanLogCache.rBSSListCFG),
-		LOG_SCAN_DONE_D2K, logBufLen);
+		LOG_SCAN_DONE_D2K);
+	KAL_RELEASE_SPIN_LOCK(prAdapter, SPIN_LOCK_BSSLIST_CFG);
 }
 
 
@@ -8607,9 +8725,9 @@ int kalExternalAuthRequest(IN struct ADAPTER *prAdapter,
 	COPY_MAC_ADDR(params.bssid, prBssDesc->aucBSSID);
 	COPY_SSID(params.ssid.ssid, params.ssid.ssid_len,
 		  prBssDesc->aucSSID, prBssDesc->ucSSIDLen);
-	params.key_mgmt_suite = RSN_CIPHER_SUITE_SAE;
+	params.key_mgmt_suite = RSN_AKM_SUITE_SAE;
 	DBGLOG(AIS, INFO, "[WPA3] "MACSTR" %s %d %d %02x-%02x-%02x-%02x",
-	       params.bssid, params.ssid.ssid,
+	       MAC2STR(params.bssid), params.ssid.ssid,
 	       params.ssid.ssid_len, params.action,
 	       (uint8_t) (params.key_mgmt_suite & 0x000000FF),
 	       (uint8_t) ((params.key_mgmt_suite >> 8) & 0x000000FF),
@@ -8743,6 +8861,39 @@ static void kalDumpHifStats(IN struct ADAPTER *prAdapter)
 			CFG_RX_MAX_PKT_NUM);
 	DBGLOG(HAL, INFO, "%s\n", buf);
 	kalMemFree(buf, VIR_MEM_TYPE, u4BufferSize);
+}
+
+uint32_t kalSetSuspendFlagToEMI(IN struct ADAPTER
+					*prAdapter, IN u_int8_t fgSuspend)
+{
+#if CFG_MTK_ANDROID_EMI
+	uint32_t u4Offset = prAdapter->u4HostStatusEmiOffset
+				& WIFI_EMI_ADDR_MASK;
+	uint32_t suspendFlag = 0;
+
+	if (!gConEmiPhyBase) {
+#if (CFG_SUPPORT_CONNINFRA == 1)
+		conninfra_get_phy_addr(
+			(unsigned int *)&gConEmiPhyBase,
+			(unsigned int *)&gConEmiSize);
+#endif
+
+		if (!gConEmiPhyBase) {
+			DBGLOG(INIT, ERROR,
+				"[EMI_Suspend] gConEmiPhyBase invalid\n");
+			return WLAN_STATUS_FAILURE;
+		}
+	}
+	suspendFlag = (fgSuspend == TRUE) ? 0x11111111 : 0x22222222;
+
+	DBGLOG(INIT, TRACE,
+		"[EMI_Suspend] EmiPhyBase:0x%llx offset:0x%x set 0x%x",
+		(uint64_t)gConEmiPhyBase, u4Offset, suspendFlag);
+
+	wf_ioremap_write((gConEmiPhyBase + u4Offset), suspendFlag);
+
+#endif /* CFG_MTK_ANDROID_EMI */
+	return WLAN_STATUS_SUCCESS;
 }
 
 #if KERNEL_VERSION(5, 4, 0) <= CFG80211_VERSION_CODE

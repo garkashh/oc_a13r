@@ -102,6 +102,12 @@ extern int g_u4HaltFlag;
 
 extern struct delayed_work sched_workq;
 
+#if CFG_SUPPORT_CFG80211_AUTH
+#if CFG_SUPPORT_CFG80211_QUEUE
+extern struct delayed_work cfg80211_workq;
+#endif
+#endif
+
 extern u_int8_t wlan_fb_power_down;
 extern u_int8_t wlan_perf_monitor_force_enable;
 extern u_int8_t g_fgIsOid;
@@ -203,6 +209,11 @@ enum ENUM_SPIN_LOCK_CATEGORY_E {
 	SPIN_LOCK_TX_CMD_DONE_QUE,
 	SPIN_LOCK_TC_RESOURCE,
 	SPIN_LOCK_RX_TO_OS_QUE,
+#endif
+#if CFG_SUPPORT_CFG80211_AUTH
+#if CFG_SUPPORT_CFG80211_QUEUE
+	SPIN_LOCK_CFG80211_QUE,
+#endif
 #endif
 
 	/* FIX ME */
@@ -424,6 +435,25 @@ struct KAL_THREAD_SCHEDSTATS {
 	/* time spent waiting for I/O (iowait_sum) */
 	unsigned long long iowait;
 };
+
+#if CFG_SUPPORT_CFG80211_AUTH
+#if CFG_SUPPORT_CFG80211_QUEUE
+struct PARAM_CFG80211_REQ {
+	struct QUE_ENTRY rQueEntry;
+	struct net_device *prDevHandler;
+	void *prFrame; /* the deauth and disassoc has the same struct */
+	struct cfg80211_bss *bss;
+	size_t frameLen;
+	uint8_t ucFlagTx;
+	uint8_t ucFrameType; /* auth deauth disassoc assoc and so on */
+};
+
+enum ENUM_CFG80211_TX_FLAG {
+	CFG80211_RX,
+	CFG80211_TX
+};
+#endif
+#endif
 
 /*******************************************************************************
  *                            P U B L I C   D A T A
@@ -1469,6 +1499,35 @@ uint32_t kalWriteCorDumpFile(uint8_t *pucBuffer,
 			     u_int8_t fgIsN9);
 uint32_t kalCloseCorDumpFile(u_int8_t fgIsN9);
 #endif
+
+#if CFG_SUPPORT_CFG80211_AUTH
+#if CFG_SUPPORT_CFG80211_QUEUE
+void kalAcquireWDevMutex(IN struct net_device *pDev);
+
+void kalReleaseWDevMutex(IN struct net_device *pDev);
+
+void wlanSchedCfg80211WorkQueue(struct work_struct *work);
+
+void cfg80211AddToPktQueue(struct net_device *prDevHandler, void *buf,
+			uint16_t u2FrameLength, struct cfg80211_bss *bss,
+			uint8_t ucflagTx, uint8_t ucFrameType);
+#endif
+
+void kalIndicateRxAuthToUpperLayer(struct net_device *prDevHandler,
+			uint8_t *prAuthFrame, uint16_t u2FrameLen);
+void kalIndicateRxAssocToUpperLayer(struct net_device *prDevHandler,
+			uint8_t *prAssocRspFrame, struct cfg80211_bss *bss,
+			uint16_t u2FrameLen);
+void kalIndicateRxDeauthToUpperLayer(struct net_device *prDevHandler,
+			uint8_t *prDeauthFrame,  uint16_t u2FrameLen);
+void kalIndicateRxDisassocToUpperLayer(struct net_device *prDevHandler,
+			uint8_t *prDisassocFrame,  uint16_t u2FrameLen);
+void kalIndicateTxDeauthToUpperLayer(struct net_device *prDevHandler,
+			uint8_t *prDeauthFrame,  uint16_t u2FrameLen);
+void kalIndicateTxDisassocToUpperLayer(struct net_device *prDevHandler,
+			uint8_t *prDisassocFrame,  uint16_t u2FrameLen);
+#endif
+
 /*******************************************************************************
  *                              F U N C T I O N S
  *******************************************************************************

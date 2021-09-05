@@ -562,6 +562,7 @@ LONG wmt_dev_tm_temp_query(VOID)
 #define HISTORY_NUM       3
 #define REFRESH_TIME    300	/* sec */
 #define ONE_DAY_LONG    86400	/* sec */
+#define MAX_TEMP    0x54 /* Max temperature for Connsys chip */
 
 	static INT32 s_temp_table[HISTORY_NUM] = { 99 };	/* not query yet. */
 	static INT32 s_idx_temp_table;
@@ -695,22 +696,27 @@ LONG wmt_dev_tm_temp_query(VOID)
 		}
 	}
 
+	return_temp = ((current_temp & 0x80) == 0x0) ? current_temp : (-1) * (current_temp & 0x7f);
+
 	/*  */
 	/* Dump information */
 	/*  */
-	if (gWmtDbgLvl >= WMT_LOG_DBG) {
+	if ((gWmtDbgLvl >= WMT_LOG_DBG) || (return_temp > MAX_TEMP)) {
 		osal_lock_unsleepable_lock(&g_temp_query_spinlock);
-		WMT_DBG_FUNC("[Thermal] s_idx_temp_table = %d, idx_temp_table = %d\n",
+		WMT_INFO_FUNC("[Thermal] s_idx_temp_table = %d, idx_temp_table = %d\n",
 			s_idx_temp_table, idx_temp_table);
-		WMT_DBG_FUNC("[Thermal] now.time = %lu, s_query.time = %lu, query.time = %lu, REFRESH_TIME = %d\n",
+		WMT_INFO_FUNC("[Thermal] now.time = %lu, s_query.time = %lu, query.time = %lu, REFRESH_TIME = %d\n",
 			now_time.tv_sec, s_query_time.tv_sec, query_time.tv_sec, REFRESH_TIME);
 
-		WMT_DBG_FUNC("[0] = %d, [1] = %d, [2] = %d\n----\n",
+		WMT_INFO_FUNC("[0] = %d, [1] = %d, [2] = %d\n----\n",
 			s_temp_table[0], s_temp_table[1], s_temp_table[2]);
 		osal_unlock_unsleepable_lock(&g_temp_query_spinlock);
 	}
 
-	return_temp = ((current_temp & 0x80) == 0x0) ? current_temp : (-1) * (current_temp & 0x7f);
+	if (return_temp > MAX_TEMP) {
+		return_temp = MAX_TEMP;
+		wmt_lib_trigger_assert_keyword(WMTDRV_TYPE_WMT, 36, "Temperature too high");
+	}
 
 	return return_temp;
 }
@@ -1575,6 +1581,9 @@ static INT32 WMT_init(VOID)
 	/*static allocate chrdev */
 	gWmtInitStatus = WMT_INIT_START;
 	init_waitqueue_head((wait_queue_head_t *) &gWmtInitWq);
+
+	osal_unsleepable_lock_init(&g_temp_query_spinlock);
+
 #if (MTK_WCN_REMOVE_KO)
 	/* called in do_common_drv_init() */
 #else
@@ -1649,8 +1658,6 @@ static INT32 WMT_init(VOID)
 	if (chip_type == WMT_CHIP_TYPE_COMBO)
 		mtk_wcn_hif_sdio_update_cb_reg(wmt_dev_tra_sdio_update);
 
-	WMT_DBG_FUNC("wmt_dev register thermal cb\n");
-	osal_unsleepable_lock_init(&g_temp_query_spinlock);
 	wmt_lib_register_thermal_ctrl_cb(wmt_dev_tm_temp_query);
 	wmt_lib_register_trigger_assert_cb(wmt_lib_trigger_assert);
 

@@ -1888,11 +1888,14 @@ nicTxFillDesc(IN struct ADAPTER *prAdapter,
 		else
 			kalMemCopy(prTxDesc, prTxDescTemplate, u4TxDescLength);
 
+		KAL_RELEASE_SPIN_LOCK(prAdapter, SPIN_LOCK_TX_DESC);
+
 		/* Overwrite fields for EOSP or More data */
 		nicTxFillDescByPktOption(prMsduInfo, prTxDesc);
 	}
 	/* Compose TXD by Msdu info */
 	else {
+		KAL_RELEASE_SPIN_LOCK(prAdapter, SPIN_LOCK_TX_DESC);
 #if (UNIFIED_MAC_TX_FORMAT == 1)
 		if (prMsduInfo->eSrc == TX_PACKET_MGMT)
 			prMsduInfo->ucPacketFormat = TXD_PKT_FORMAT_COMMAND;
@@ -1946,7 +1949,6 @@ nicTxFillDesc(IN struct ADAPTER *prAdapter,
 	if (pu4TxDescLength)
 		*pu4TxDescLength = u4TxDescLength;
 
-	KAL_RELEASE_SPIN_LOCK(prAdapter, SPIN_LOCK_TX_DESC);
 }
 
 void
@@ -2155,12 +2157,12 @@ void nicTxFreeDescTemplate(IN struct ADAPTER *prAdapter,
 	DBGLOG(QM, TRACE, "Free TXD template for STA[%u] QoS[%u]\n",
 	       prStaRec->ucIndex, prStaRec->fgIsQoS);
 
-	/* This is to lock the process to preventing */
-	/* nicTxFreeDescTemplate while Filling it */
-	KAL_ACQUIRE_SPIN_LOCK(prAdapter, SPIN_LOCK_TX_DESC);
-
 	if (prStaRec->fgIsQoS) {
 		for (ucTid = 0; ucTid < TX_DESC_TID_NUM; ucTid++) {
+			/* This is to lock the process to preventing */
+			/* nicTxFreeDescTemplate while Filling it */
+			KAL_ACQUIRE_SPIN_LOCK(prAdapter, SPIN_LOCK_TX_DESC);
+
 			prTxDesc = (struct HW_MAC_TX_DESC *)
 				   prStaRec->aprTxDescTemplate[ucTid];
 
@@ -2172,32 +2174,41 @@ void nicTxFreeDescTemplate(IN struct ADAPTER *prAdapter,
 					ucTxDescSize =
 						NIC_TX_DESC_SHORT_FORMAT_LENGTH;
 
+				prStaRec->aprTxDescTemplate[ucTid] =
+					NULL;
+
+				KAL_RELEASE_SPIN_LOCK(prAdapter,
+					SPIN_LOCK_TX_DESC);
+
 				kalMemFree(prTxDesc, VIR_MEM_TYPE,
 					ucTxDescSize);
 
-				prTxDesc =
-					prStaRec->aprTxDescTemplate[ucTid] =
-					NULL;
-			}
+				prTxDesc = NULL;
+			} else
+				KAL_RELEASE_SPIN_LOCK(prAdapter,
+					SPIN_LOCK_TX_DESC);
 		}
 	} else {
+		/* This is to lock the process to preventing */
+		/* nicTxFreeDescTemplate while Filling it */
+		KAL_ACQUIRE_SPIN_LOCK(prAdapter, SPIN_LOCK_TX_DESC);
 		prTxDesc = (struct HW_MAC_TX_DESC *)
 			   prStaRec->aprTxDescTemplate[0];
+		for (ucTid = 0; ucTid < TX_DESC_TID_NUM; ucTid++)
+			prStaRec->aprTxDescTemplate[ucTid] = NULL;
+
 		if (prTxDesc) {
 			if (HAL_MAC_TX_DESC_IS_LONG_FORMAT(prTxDesc))
 				ucTxDescSize = NIC_TX_DESC_LONG_FORMAT_LENGTH;
 			else
 				ucTxDescSize = NIC_TX_DESC_SHORT_FORMAT_LENGTH;
+			KAL_RELEASE_SPIN_LOCK(prAdapter, SPIN_LOCK_TX_DESC);
 
 			kalMemFree(prTxDesc, VIR_MEM_TYPE, ucTxDescSize);
 			prTxDesc = NULL;
-		}
-		for (ucTid = 0; ucTid < TX_DESC_TID_NUM; ucTid++)
-			prStaRec->aprTxDescTemplate[ucTid] = NULL;
+		} else
+			KAL_RELEASE_SPIN_LOCK(prAdapter, SPIN_LOCK_TX_DESC);
 	}
-
-
-	KAL_RELEASE_SPIN_LOCK(prAdapter, SPIN_LOCK_TX_DESC);
 }
 
 /*----------------------------------------------------------------------------*/

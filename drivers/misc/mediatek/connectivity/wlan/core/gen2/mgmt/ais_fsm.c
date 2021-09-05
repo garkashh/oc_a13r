@@ -1009,7 +1009,7 @@ VOID aisGetAndSetScanChannel(IN P_ADAPTER_T prAdapter)
 		if (ucChannelp[i] != 0) {
 			ucChannelNum = aisIndex2ChannelNum(i);
 			DBGLOG(AIS, TRACE, "Full2Partial i=%d, channel value=%d\n", i, ucChannelNum);
-			if (ucChannelNum != 0) {
+			if (ucChannelNum != 0 && t >= 0) {
 				if ((ucChannelNum >= 1) && (ucChannelNum <= 14))
 					PartialScanChannel->arChnlInfoList[t].eBand = BAND_2G4;
 				else

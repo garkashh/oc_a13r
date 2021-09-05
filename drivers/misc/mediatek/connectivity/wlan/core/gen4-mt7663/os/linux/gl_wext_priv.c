@@ -2422,8 +2422,13 @@ priv_set_driver(IN struct net_device *prNetDev,
 
 	ASSERT(IW_IS_GET(u2Cmd));
 	if (prIwReqData->data.length != 0) {
+#if KERNEL_VERSION(5, 0, 0) <= LINUX_VERSION_CODE
+		if (!access_ok(prIwReqData->data.pointer,
+			       prIwReqData->data.length)) {
+#else
 		if (!access_ok(VERIFY_READ, prIwReqData->data.pointer,
 			       prIwReqData->data.length)) {
+#endif
 			DBGLOG(REQ, INFO,
 			       "%s access_ok Read fail written = %d\n",
 			       __func__, i4BytesWritten);
@@ -4386,7 +4391,6 @@ static int priv_driver_iso_detect(IN struct GLUE_INFO *prGlueInfo,
 
 	if (rStatus != WLAN_STATUS_SUCCESS)
 		return -1;
-
 	/* If all pass, return u4Ret to 0 */
 	return u4Ret;
 }
@@ -6585,20 +6589,6 @@ static int32_t priv_driver_dump_stat_info(struct ADAPTER *prAdapter,
 			ucRcpi1 = (ucRcpi1 >= RCPI_MEASUREMENT_NOT_AVAILABLE) ?
 				ucRcpi1 : (ucRcpi1 +
 				wlanGetCurrChRxFELoss(prAdapter, ucStaIdx, 1));
-
-			if (ucNss > 2) {
-				ucRcpi2 = (ucRcpi2 >=
-					RCPI_MEASUREMENT_NOT_AVAILABLE) ?
-					ucRcpi2 : (ucRcpi2 +
-					wlanGetCurrChRxFELoss(prAdapter,
-					ucStaIdx, 2));
-				ucRcpi3 = (ucRcpi3 >=
-					RCPI_MEASUREMENT_NOT_AVAILABLE) ?
-					ucRcpi3 : (ucRcpi3 +
-					wlanGetCurrChRxFELoss(prAdapter,
-					ucStaIdx, 3));
-
-			}
 		}
 		DBGLOG(REQ, LOUD, "ucRcpi0:%d ucRcpi1:%d\n", ucRcpi0, ucRcpi1);
 #endif /* CFG_RCPI_COMPENSATION */
@@ -11266,8 +11256,13 @@ priv_set_ap(IN struct net_device *prNetDev,
 
 	ASSERT(IW_IS_GET(u2Cmd));
 	if (prIwReqData->data.length != 0) {
+#if KERNEL_VERSION(5, 0, 0) <= LINUX_VERSION_CODE
+		if (!access_ok(prIwReqData->data.pointer,
+			prIwReqData->data.length)) {
+#else
 		if (!access_ok(VERIFY_READ, prIwReqData->data.pointer,
 			prIwReqData->data.length)) {
+#endif
 			DBGLOG(REQ, INFO,
 				"%s access_ok Read fail written = %d\n",
 				__func__, i4BytesWritten);
@@ -15984,7 +15979,7 @@ static int priv_driver_bss_transition_query(IN struct net_device *prNetDev,
 
 	rStatus = kalIoctl(prGlueInfo,
 				wlanoidSendBTMQuery,
-				(void *)pucQueryReason, strlen(pucQueryReason),
+				(void *)pucQueryReason, 0,
 				FALSE, FALSE, TRUE, &u4BufLen);
 
 	if (rStatus != WLAN_STATUS_SUCCESS) {

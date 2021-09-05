@@ -4894,8 +4894,6 @@ int btmtk_sdio_driver_reset_dongle(void)
 		BTMTK_INFO("g_priv = NULL, return");
 		return -1;
 	}
-
-	need_reset_stack = 1;
 	wlan_remove_done = 0;
 
 retry_reset:
@@ -4940,7 +4938,9 @@ rst_dongle_err:
 	btmtk_clean_queue();
 	g_priv->btmtk_dev.reset_progress = 0;
 	dump_data_counter = 0;
-	BTMTK_INFO("return ret = %d", ret);
+	need_reset_stack = 1;
+	wake_up_interruptible(&inq);
+	BTMTK_INFO("need reset stack = %d, return ret = %d", need_reset_stack, ret);
 	return ret;
 }
 
@@ -5382,23 +5382,6 @@ static int btmtk_sdio_probe(struct sdio_func *func,
 	btmtk_sdio_initialize_cfg_items();
 	btmtk_sdio_load_setting_files(g_card->bt_cfg_file_name, &g_card->func->dev, g_card);
 
-	BTMTK_DBG("func device %X, call btmtk_sdio_register_dev", g_card->func->device);
-	if (btmtk_sdio_register_dev(g_card) < 0) {
-		BTMTK_ERR("Failed to register BT device!");
-		return -ENODEV;
-	}
-
-	BTMTK_DBG("btmtk_sdio_register_dev success");
-
-	/* Disable the interrupts on the card */
-	btmtk_sdio_enable_host_int(g_card);
-	BTMTK_DBG("call btmtk_sdio_enable_host_int done");
-
-	if (btmtk_sdio_download_fw(g_card)) {
-		BTMTK_ERR("Downloading firmware failed!");
-		fw_download_fail = 1;
-	}
-
 	/* check buffer mode */
 	btmtk_eeprom_bin_file(g_card);
 
@@ -5418,6 +5401,24 @@ static int btmtk_sdio_probe(struct sdio_func *func,
 	}
 	BTMTK_DBG("btmtk_add_card success");
 	BTMTK_DBG("assign priv done");
+
+	BTMTK_DBG("func device %X, call btmtk_sdio_register_dev", g_card->func->device);
+	if (btmtk_sdio_register_dev(g_card) < 0) {
+		BTMTK_ERR("Failed to register BT device!");
+		return -ENODEV;
+	}
+
+	BTMTK_DBG("btmtk_sdio_register_dev success");
+
+	/* Disable the interrupts on the card */
+	btmtk_sdio_enable_host_int(g_card);
+	BTMTK_DBG("call btmtk_sdio_enable_host_int done");
+
+	if (btmtk_sdio_download_fw(g_card)) {
+		BTMTK_ERR("Downloading firmware failed!");
+		fw_download_fail = 1;
+	}
+
 	/* Initialize the interface specific function pointers */
 	pf_sdio_reset = (sdio_reset_func) btmtk_kallsyms_lookup_name("sdio_reset_comm");
 	if (!pf_sdio_reset && is_mt7668(g_card)) {
