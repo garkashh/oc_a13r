@@ -1,13 +1,13 @@
 !/bin/bash
 
 
-echo "Hi merlin user just wait and watch "
+echo "Hi shiva user just wait and watch "
 
 mkdir outL
 export ARCH=arm64
 export SUBARCH=arm64
 export DTC_EXT=dtc
-make O=outL ARCH=arm64 merlin_defconfig
+make O=outL ARCH=arm64 shiva_defconfig
 export PATH="${PWD}/clang-13/aaa/:${PATH}"
 make -j$(nproc --all) O=outL \
                       ARCH=arm64 \
@@ -24,11 +24,11 @@ make -j$(nproc --all) O=outL \
 bp=${PWD}/outL
 DATE=$(date "+%Y%m%d-%H%M")
 
-ZIPNAME="Pizza_Merlin-R-vendor"
+ZIPNAME="Pizza_Shiva-R-vendor"
 cd ${PWD}/AnyKernel3-master
 rm *.zip *-dtb 
 cp $bp/arch/arm64/boot/Image.gz-dtb .
-ZIPNAME="Shas-Dream-Merlin-a13r-vendor"
+ZIPNAME="Shas-Dream-Shiva-a13r-vendor"
 cd ${PWD}/AnyKernel3-master
 rm *.zip *-dtb *dtbo.img
 cp $bp/arch/arm64/boot/Image.gz-dtb .
