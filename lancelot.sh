@@ -1,8 +1,5 @@
-<<<<<<< HEAD
 !/bin/bash
-=======
-#!/bin/bash
->>>>>>> 59e8775feb88cbef87065ec08d5eafe2cb0f8caa
+
 
 echo "Hi lancelot user just wait and watch "
 
@@ -26,17 +23,15 @@ make -j$(nproc --all) O=outL \
                       CROSS_COMPILE_ARM32=${PWD}/clang-13/aaa/bin/arm-linux-gnueabi- 
 bp=${PWD}/outL
 DATE=$(date "+%Y%m%d-%H%M")
-<<<<<<< HEAD
+
 ZIPNAME="Pizza_Lancelot-R-vendor"
 cd ${PWD}/AnyKernel3-master
 rm *.zip *-dtb 
 cp $bp/arch/arm64/boot/Image.gz-dtb .
-=======
 ZIPNAME="Shas-Dream-Lancelot-a13r-vendor"
 cd ${PWD}/AnyKernel3-master
 rm *.zip *-dtb *dtbo.img
 cp $bp/arch/arm64/boot/Image.gz-dtb .
 cp $bp/arch/arm64/boot/dtbo.img .
->>>>>>> 59e8775feb88cbef87065ec08d5eafe2cb0f8caa
 zip -r9 "$ZIPNAME"-"${DATE}".zip *
 cd - || exit
