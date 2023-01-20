@@ -1480,12 +1480,6 @@ static int cpufreq_callback(struct notifier_block *nb,
 	if (freq->flags & CPUFREQ_CONST_LOOPS)
 		return NOTIFY_OK;
 
-	if (val == CPUFREQ_PRECHANGE) {
-		arch_get_cluster_cpus(&cls_cpus, arch_get_cluster_id(cpu));
-		for_each_cpu(id, &cls_cpus)
-			arch_scale_set_curr_freq(id, freq->new);
-	}
-
 	return NOTIFY_OK;
 }
 
@@ -1502,11 +1496,7 @@ static int cpufreq_policy_callback(struct notifier_block *nb,
 	if (val != CPUFREQ_NOTIFY)
 		return NOTIFY_OK;
 
-	for_each_cpu(i, policy->cpus) {
-		arch_scale_set_curr_freq(i, policy->cur);
-		arch_scale_set_max_freq(i, policy->max);
-		arch_scale_set_min_freq(i, policy->min);
-	}
+
 
 	return NOTIFY_OK;
 }
