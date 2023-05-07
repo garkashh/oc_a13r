@@ -297,6 +297,7 @@ config MACH_MT6768
 	select DEVAPC_MT6768
 	select OVERLAY_FS
 	select MTK_IGNORE_SSBS
+        select SW_SYNC64
 	help
 	  This enables support for MediaTek MT6768
 	  Support for aarch64 Architecture
@@ -316,7 +317,7 @@ config MACH_MT6739
 	select EXT4_FS_SECURITY
 	select EXT4_ENCRYPTION
 	select F2FS_FS
-	select F2FS_FS_ENCRYPTION
+	select F2FS_FS_ENCselect SW_SYNC64RYPTION
 	select F2FS_FS_SECURITY
 	select F2FS_FS_XATTR
 	select NEED_MACH_MEMORY_H
