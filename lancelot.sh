@@ -24,14 +24,10 @@ make -j$(nproc --all) O=outL \
 bp=${PWD}/outL
 DATE=$(date "+%Y%m%d-%H%M")
 
-ZIPNAME="Pizza_Lancelot-R-vendor"
 cd ${PWD}/AnyKernel3-master
 rm *.zip *-dtb 
-cp $bp/arch/arm64/boot/Image.gz-dtb .
+cp $bp/arch/arm64/boot/Image.gz-dtb
 ZIPNAME="Shas-Dream-Lancelot-a13r-vendor"
-cd ${PWD}/AnyKernel3-master
-rm *.zip *-dtb *dtbo.img
-cp $bp/arch/arm64/boot/Image.gz-dtb .
-cp $bp/arch/arm64/boot/dtbo.img .
-zip -r9 "$ZIPNAME"-"${DATE}".zip *
+cp $bp/arch/arm64/boot/dtbo.img
+zip -r9 "$ZIPNAME"-"${DATE}".zip
 cd - || exit
