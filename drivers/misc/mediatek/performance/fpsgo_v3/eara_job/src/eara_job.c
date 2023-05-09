@@ -1393,8 +1393,6 @@ static int __init init_eara_job(void)
 {
 	return 0;
 
-err:
-	return -1;
 }
 
 late_initcall(init_eara_job);
