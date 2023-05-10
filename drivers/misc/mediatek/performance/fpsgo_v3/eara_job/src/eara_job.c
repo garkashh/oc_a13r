@@ -74,7 +74,6 @@ static int ai_bench;
 
 static DEFINE_MUTEX(eara_lock);
 
-static struct dentry *eara_debugfs_dir;
 static int get_pwr_tbl_done;
 static void get_pwr_tbl(void);
 #define NR_FREQ_CPU 16
